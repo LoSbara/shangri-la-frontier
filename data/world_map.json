@@ -1,0 +1,85 @@
+{
+  "zones": [
+    {
+      "id": "crysta",
+      "name": "Crysta",
+      "subtitle": "Città di Partenza",
+      "type": "safe",
+      "tier": "HUB",
+      "x": 250, "y": 415, "r": 22,
+      "connections": ["foresta_aokara", "pianure_veth"]
+    },
+    {
+      "id": "foresta_aokara",
+      "name": "Foresta di Aokara",
+      "subtitle": "Zona F–E",
+      "type": "combat",
+      "tier": "F–E",
+      "x": 120, "y": 300, "r": 16,
+      "connections": ["crysta", "rovine_mireille"]
+    },
+    {
+      "id": "pianure_veth",
+      "name": "Pianure di Veth",
+      "subtitle": "Zona F–E",
+      "type": "combat",
+      "tier": "F–E",
+      "x": 380, "y": 300, "r": 16,
+      "connections": ["crysta", "rovine_mireille", "porto_neralia"]
+    },
+    {
+      "id": "porto_neralia",
+      "name": "Porto di Neralia",
+      "subtitle": "Città Portuale",
+      "type": "safe",
+      "tier": "HUB",
+      "x": 430, "y": 200, "r": 18,
+      "connections": ["pianure_veth", "laguna_oscura"]
+    },
+    {
+      "id": "rovine_mireille",
+      "name": "Rovine di Mireille",
+      "subtitle": "Zona D–C",
+      "type": "combat",
+      "tier": "D–C",
+      "x": 250, "y": 205, "r": 16,
+      "connections": ["foresta_aokara", "pianure_veth", "deserto_kharyn", "torre_eco"]
+    },
+    {
+      "id": "deserto_kharyn",
+      "name": "Deserto di Kharyn",
+      "subtitle": "Zona C–B",
+      "type": "combat",
+      "tier": "C–B",
+      "x": 100, "y": 120, "r": 15,
+      "connections": ["rovine_mireille", "torre_eco"]
+    },
+    {
+      "id": "torre_eco",
+      "name": "Torre dell'Eco",
+      "subtitle": "Dungeon B–A",
+      "type": "dungeon",
+      "tier": "B–A",
+      "x": 250, "y": 105, "r": 16,
+      "connections": ["rovine_mireille", "deserto_kharyn", "altopiano_eterno"]
+    },
+    {
+      "id": "laguna_oscura",
+      "name": "Laguna Oscura",
+      "subtitle": "Zona A–S",
+      "type": "combat",
+      "tier": "A–S",
+      "x": 380, "y": 120, "r": 14,
+      "connections": ["porto_neralia", "altopiano_eterno"]
+    },
+    {
+      "id": "altopiano_eterno",
+      "name": "Altopiano Eterno",
+      "subtitle": "Zona S–SS — Boss",
+      "type": "boss",
+      "tier": "S–SS",
+      "x": 250, "y": 30, "r": 14,
+      "connections": ["torre_eco", "laguna_oscura"]
+    }
+  ]
+}

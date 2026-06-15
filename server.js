@@ -247,10 +247,42 @@ app.post('/api/chat', async (req, res) => {
     const narrative = parsed.narrative || '(risposta non valida dal GM)';
     const uiEvents = Array.isArray(parsed.ui_events) ? parsed.ui_events : [];
 
+    // Snapshot pre-update per tracking bestiario
+    const prevCombatActive = gameState.combat_active;
+    const prevEnemyName    = gameState.current_enemy?.name || null;
+
     // Apply state updates
     if (parsed.state_updates?.player) deepMerge(profile, parsed.state_updates.player);
     if (parsed.state_updates?.inventory) deepMerge(inventory, parsed.state_updates.inventory);
     if (parsed.state_updates?.game_state) deepMerge(gameState, parsed.state_updates.game_state);
+
+    // Bestiary tracking
+    try {
+      const bestiary   = readData('bestiary.json');
+      const currEnemy  = gameState.current_enemy;
+      const currName   = currEnemy?.name || null;
+      const newEnemy   = currName && currName !== prevEnemyName;
+      const combatOver = prevCombatActive && !gameState.combat_active;
+
+      if (newEnemy) {
+        let entry = bestiary.entries.find(e => e.name === currName);
+        if (!entry) {
+          entry = { name: currName, tier: currEnemy.tier || '?', level: currEnemy.level || '?',
+            hp_max: currEnemy.hp?.max || null, stats: null, weaknesses: [], encounters: 0, defeated: 0 };
+          bestiary.entries.push(entry);
+        }
+        entry.encounters = (entry.encounters || 0) + 1;
+      }
+      if (currEnemy?.revealed && currName) {
+        const entry = bestiary.entries.find(e => e.name === currName);
+        if (entry) { entry.stats = currEnemy.stats; entry.weaknesses = currEnemy.weaknesses || []; }
+      }
+      if (combatOver && prevEnemyName) {
+        const entry = bestiary.entries.find(e => e.name === prevEnemyName);
+        if (entry) entry.defeated = (entry.defeated || 0) + 1;
+      }
+      writeData('bestiary.json', bestiary);
+    } catch { /* non-critical */ }
 
     // Level up check
     checkLevelUp(profile).forEach(e => {
@@ -347,6 +379,114 @@ app.post('/api/allocate', (req, res) => {
   profile.stat_points_available -= total;
   writeData('player_profile.json', profile);
   res.json({ profile });
+});
+
+// GET /api/world-map
+app.get('/api/world-map', (req, res) => {
+  try { res.json(readData('world_map.json')); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/bestiary
+app.get('/api/bestiary', (req, res) => {
+  try { res.json(readData('bestiary.json')); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/shop
+app.get('/api/shop', (req, res) => {
+  try { res.json(readData('shop.json')); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/shop/generate — genera listino negozio via Groq
+app.post('/api/shop/generate', async (req, res) => {
+  try {
+    const profile   = readData('player_profile.json');
+    const gameState = readData('game_state.json');
+
+    const prompt = `Sei il gestore di un negozio in "${gameState.location}" di Shangri-La Frontier.
+Il cliente è ${profile.name || 'uno Hunter'} (${profile.job || '?'}, Lv.${profile.level}) con ${profile.money} R.
+Genera 7 oggetti in vendita bilanciati per il suo livello. Mix consigliato:
+- 1-2 armi (slot: weapon o offhand) con stat_bonus.STR o DEX
+- 1-2 armature (slot: head/chest/legs/boots) con stat_bonus.VIT
+- 1 accessorio (slot: accessory_1) con bonus misti
+- 2 consumabili (type: consumable, slot: null) come pozioni HP o MP
+Rarità: comune (cheap), non_comune (moderate), raro (expensive).
+Rispondi con json valido:
+{
+  "shop_name": "Nome evocativo del negozio",
+  "items": [
+    { "id": "uid_unico", "name": "Nome", "description": "Breve desc.", "type": "weapon|armor|accessory|consumable", "slot": "weapon|offhand|head|chest|legs|boots|accessory_1|null", "price": 100, "rarity": "comune|non_comune|raro", "stat_bonus": {} }
+  ]
+}`;
+
+    const completion = await groq.chat.completions.create({
+      model: MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.7,
+      max_tokens: 1200,
+      response_format: { type: 'json_object' },
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? '{}';
+    const parsed = JSON.parse(raw);
+    const shop = {
+      shop_name: parsed.shop_name || 'Negozio',
+      location: gameState.location,
+      items: (parsed.items || []).map((item, i) => ({ ...item, id: item.id || `item_${i}` })),
+    };
+    writeData('shop.json', shop);
+    res.json(shop);
+  } catch (err) {
+    console.error('Shop generate error:', err?.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/shop/buy
+app.post('/api/shop/buy', (req, res) => {
+  const { item_id } = req.body;
+  try {
+    const profile = readData('player_profile.json');
+    const inventory = readData('inventory.json');
+    const shop = readData('shop.json');
+
+    const item = shop.items.find(i => i.id === item_id);
+    if (!item) return res.status(404).json({ error: 'Oggetto non trovato' });
+    if (profile.money < item.price) return res.status(400).json({ error: 'Ragne insufficienti' });
+
+    profile.money -= item.price;
+    inventory.bag = inventory.bag || [];
+    inventory.bag.push({ id: item.id, name: item.name, description: item.description,
+      type: item.type, slot: item.slot, stat_bonus: item.stat_bonus || {}, rarity: item.rarity, quantity: 1 });
+
+    writeData('player_profile.json', profile);
+    writeData('inventory.json', inventory);
+    res.json({ profile, inventory });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/shop/sell
+app.post('/api/shop/sell', (req, res) => {
+  const { item_index, source } = req.body; // source: 'bag'
+  try {
+    const profile = readData('player_profile.json');
+    const inventory = readData('inventory.json');
+
+    const bag = inventory.bag || [];
+    if (item_index < 0 || item_index >= bag.length) return res.status(400).json({ error: 'Indice non valido' });
+
+    const item = bag[item_index];
+    const sellPrice = Math.max(1, Math.floor((item.price || 50) * 0.5));
+    profile.money += sellPrice;
+    bag.splice(item_index, 1);
+    inventory.bag = bag;
+
+    writeData('player_profile.json', profile);
+    writeData('inventory.json', inventory);
+    res.json({ profile, inventory, sellPrice, itemName: item.name });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // POST /api/skill-loadout — aggiorna skill loadout

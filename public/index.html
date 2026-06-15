@@ -10,6 +10,11 @@
 
   <header class="top-bar">
     <div class="game-title">◈ SHANGRI-LA FRONTIER</div>
+    <div class="top-actions">
+      <button id="map-btn"      class="top-btn" title="Mappa del mondo">🗺</button>
+      <button id="bestiary-btn" class="top-btn" title="Bestiario">📖</button>
+      <button id="shop-btn"     class="top-btn" title="Negozio" disabled>🛒</button>
+    </div>
     <div class="player-header">
       <span id="player-job" class="job-badge">?</span>
       <span id="player-name" class="player-name">—</span>
@@ -151,6 +156,58 @@
         <button id="sl-cancel" class="btn-secondary">Annulla</button>
         <button id="sl-confirm" class="btn-primary">Salva Loadout</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Mappa del Mondo ── -->
+  <div id="modal-map" class="modal-overlay hidden">
+    <div class="modal-box modal-box-map">
+      <div class="modal-header-row">
+        <div class="modal-title">MAPPA DEL MONDO</div>
+        <button class="modal-close" onclick="closeModal('modal-map')">✕</button>
+      </div>
+      <div class="map-legend">
+        <span class="legend-dot safe"></span>Città
+        <span class="legend-dot combat"></span>Zona combat
+        <span class="legend-dot dungeon"></span>Dungeon
+        <span class="legend-dot boss"></span>Boss
+      </div>
+      <div id="map-svg-container" class="map-svg-container"></div>
+      <div class="modal-sub" style="text-align:center;margin-top:8px">Clicca su una zona per spostarti</div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Bestiario ── -->
+  <div id="modal-bestiary" class="modal-overlay hidden">
+    <div class="modal-box modal-box-wide">
+      <div class="modal-header-row">
+        <div class="modal-title">BESTIARIO</div>
+        <button class="modal-close" onclick="closeModal('modal-bestiary')">✕</button>
+      </div>
+      <div id="bestiary-filters" class="bestiary-filters"></div>
+      <div id="bestiary-list" class="bestiary-list"></div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Negozio ── -->
+  <div id="modal-shop" class="modal-overlay hidden">
+    <div class="modal-box modal-box-wide">
+      <div class="modal-header-row">
+        <div>
+          <div class="modal-title" id="shop-title">NEGOZIO</div>
+          <div class="modal-sub" id="shop-location">—</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="shop-refresh-btn" class="btn-tiny">↺ Aggiorna</button>
+          <button class="modal-close" onclick="closeModal('modal-shop')">✕</button>
+        </div>
+      </div>
+      <div class="shop-tabs">
+        <button id="tab-buy"  class="shop-tab active" onclick="switchShopTab('buy')">Compra</button>
+        <button id="tab-sell" class="shop-tab"        onclick="switchShopTab('sell')">Vendi</button>
+      </div>
+      <div id="shop-buy-panel"  class="shop-panel"></div>
+      <div id="shop-sell-panel" class="shop-panel hidden"></div>
     </div>
   </div>
 
