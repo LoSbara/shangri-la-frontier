@@ -1064,3 +1064,148 @@ body {
 }
 
 .lu-sub { font-size: 12px; color: var(--text-dim); }
+
+/* ── Combat Log ─────────────────────────────────────────────────────────────── */
+.combat-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+.combat-log-list::-webkit-scrollbar { width: 2px; }
+.combat-log-list::-webkit-scrollbar-thumb { background: var(--panel-border); }
+
+.cl-entry {
+  padding: 5px 8px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+}
+
+.cl-turn {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  margin-bottom: 3px;
+  letter-spacing: 1px;
+}
+
+.cl-event {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.cl-icon { font-size: 10px; flex-shrink: 0; }
+.cl-text { flex: 1; color: var(--text); }
+
+.cl-damage-taken .cl-text { color: var(--enemy); }
+.cl-heal .cl-text          { color: var(--hp); }
+.cl-exp-gain .cl-text      { color: var(--exp); }
+.cl-enemy-damage .cl-text  { color: var(--hp); }
+.cl-money .cl-text         { color: var(--stm); }
+.cl-mp-change .cl-text     { color: var(--mp); }
+.cl-stm-cost .cl-text      { color: var(--stm); }
+
+/* ── Save Slots ─────────────────────────────────────────────────────────────── */
+.slots-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.slot-card {
+  padding: 14px 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.02);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  transition: border-color 0.2s;
+}
+.slot-card:hover { border-color: rgba(92,95,232,0.4); }
+
+.slot-num {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--panel-border);
+  min-width: 26px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.slot-info { flex: 1; min-width: 0; }
+
+.slot-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-bright);
+  margin-bottom: 2px;
+}
+
+.slot-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+
+.slot-saved-at {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.slot-empty-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.slot-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.slot-btn-load {
+  padding: 5px 12px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.slot-btn-load:hover { background: #6e71f0; }
+
+.slot-btn-save {
+  padding: 5px 12px;
+  background: transparent;
+  color: var(--hp);
+  border: 1px solid rgba(34,197,94,0.4);
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.slot-btn-save:hover { background: rgba(34,197,94,0.1); }
+
+.slot-btn-del {
+  padding: 5px 10px;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--panel-border);
+  border-radius: 5px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+.slot-btn-del:hover { color: var(--enemy); border-color: rgba(239,68,68,0.5); }

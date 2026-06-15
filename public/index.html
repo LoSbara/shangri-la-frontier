@@ -14,6 +14,8 @@
       <button id="map-btn"      class="top-btn" title="Mappa del mondo">🗺</button>
       <button id="bestiary-btn" class="top-btn" title="Bestiario">📖</button>
       <button id="shop-btn"     class="top-btn" title="Negozio" disabled>🛒</button>
+      <button id="slots-btn"    class="top-btn" title="Salvataggi">💾</button>
+      <button id="export-btn"   class="top-btn" title="Esporta sessione come .md">⬇</button>
     </div>
     <div class="player-header">
       <span id="player-job" class="job-badge">?</span>
@@ -94,6 +96,12 @@
 
     <!-- ── Pannello destro: Combattimento, Inventario, Skill ── -->
     <aside class="panel right-panel">
+
+      <!-- Log combattimento (visibile solo in combattimento) -->
+      <div id="combat-log-panel" class="panel-section hidden">
+        <div class="section-title">LOG TURNI</div>
+        <div id="combat-log-list" class="combat-log-list"></div>
+      </div>
 
       <!-- Pannello nemico (visibile solo in combattimento) -->
       <div id="combat-panel" class="panel-section combat-panel hidden">
@@ -208,6 +216,17 @@
       </div>
       <div id="shop-buy-panel"  class="shop-panel"></div>
       <div id="shop-sell-panel" class="shop-panel hidden"></div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Salvataggi ── -->
+  <div id="modal-slots" class="modal-overlay hidden">
+    <div class="modal-box modal-box-wide">
+      <div class="modal-header-row">
+        <div class="modal-title">SALVATAGGI</div>
+        <button class="modal-close" onclick="closeModal('modal-slots')">✕</button>
+      </div>
+      <div id="slots-list" class="slots-list"></div>
     </div>
   </div>
 

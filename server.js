@@ -16,7 +16,10 @@ if (!GROQ_API_KEY) {
 }
 
 const groq = new Groq({ apiKey: GROQ_API_KEY });
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR  = path.join(__dirname, 'data');
+const SLOTS_DIR = path.join(__dirname, 'data', 'slots');
+if (!fs.existsSync(SLOTS_DIR)) fs.mkdirSync(SLOTS_DIR, { recursive: true });
+const SLOT_FILES = ['player_profile.json', 'inventory.json', 'game_state.json', 'skills_library.json', 'bestiary.json'];
 
 app.use(cors());
 app.use(express.json());
@@ -247,9 +250,15 @@ app.post('/api/chat', async (req, res) => {
     const narrative = parsed.narrative || '(risposta non valida dal GM)';
     const uiEvents = Array.isArray(parsed.ui_events) ? parsed.ui_events : [];
 
-    // Snapshot pre-update per tracking bestiario
+    // Snapshot pre-update
     const prevCombatActive = gameState.combat_active;
     const prevEnemyName    = gameState.current_enemy?.name || null;
+    const snapHP      = profile.stats.HP.current;
+    const snapMP      = profile.stats.MP.current;
+    const snapSTM     = profile.stats.STM.current;
+    const snapEXP     = profile.experience;
+    const snapMoney   = profile.money;
+    const snapEnemyHP = gameState.current_enemy?.hp?.current ?? null;
 
     // Apply state updates
     if (parsed.state_updates?.player) deepMerge(profile, parsed.state_updates.player);
@@ -288,6 +297,35 @@ app.post('/api/chat', async (req, res) => {
     checkLevelUp(profile).forEach(e => {
       if (!uiEvents.includes(e)) uiEvents.push(e);
     });
+
+    // Combat log tracking
+    try {
+      const logEntries = Array.isArray(gameState.combat_log_entries) ? gameState.combat_log_entries : [];
+      const events = [];
+      const hpDelta    = profile.stats.HP.current  - snapHP;
+      const mpDelta    = profile.stats.MP.current  - snapMP;
+      const stmDelta   = profile.stats.STM.current - snapSTM;
+      const expDelta   = profile.experience        - snapEXP;
+      const moneyDelta = profile.money             - snapMoney;
+      const enemyHPNow = gameState.current_enemy?.hp?.current ?? null;
+      const enemyDelta = (snapEnemyHP !== null && enemyHPNow !== null) ? enemyHPNow - snapEnemyHP : null;
+
+      if (hpDelta    !== 0) events.push({ type: hpDelta < 0 ? 'damage_taken' : 'heal',   text: `HP ${hpDelta > 0 ? '+' : ''}${hpDelta} (${snapHP}→${profile.stats.HP.current})` });
+      if (mpDelta    !== 0) events.push({ type: 'mp_change',   text: `MP ${mpDelta > 0 ? '+' : ''}${mpDelta}` });
+      if (stmDelta   !== 0) events.push({ type: 'stm_cost',    text: `STM ${stmDelta > 0 ? '+' : ''}${stmDelta}` });
+      if (expDelta    > 0)  events.push({ type: 'exp_gain',    text: `+${expDelta} EXP` });
+      if (moneyDelta !== 0) events.push({ type: 'money',       text: `${moneyDelta > 0 ? '+' : ''}${moneyDelta} R` });
+      if (enemyDelta !== null && enemyDelta !== 0) events.push({ type: 'enemy_damage', text: `Nemico HP ${enemyDelta > 0 ? '+' : ''}${enemyDelta} (${snapEnemyHP}→${enemyHPNow})` });
+
+      if (events.length > 0) {
+        logEntries.push({ n: logEntries.length + 1, events });
+        if (logEntries.length > 30) logEntries.shift();
+        gameState.combat_log_entries = logEntries;
+      }
+      if (prevCombatActive && !gameState.combat_active) {
+        gameState.combat_log_entries = [];
+      }
+    } catch { /* non-critical */ }
 
     // New skills
     if (Array.isArray(parsed.new_skills)) {
@@ -509,6 +547,102 @@ app.post('/api/skill-loadout', (req, res) => {
     skill_loadout: gameState.skill_loadout,
     gameState: readData('game_state.json'),
   });
+});
+
+// ── Export sessione ────────────────────────────────────────────────────────────
+
+app.get('/api/export', (req, res) => {
+  try {
+    const profile   = readData('player_profile.json');
+    const gameState = readData('game_state.json');
+    const log       = gameState.session_log || [];
+
+    const lines = [
+      `# Shangri-La Frontier — Sessione`,
+      ``,
+      `**Personaggio:** ${profile.name || '—'} · ${profile.job || '?'} · Lv.${profile.level}`,
+      `**Posizione:** ${gameState.location || '—'}`,
+      `**Denaro:** ${profile.money} R | **EXP:** ${profile.experience}/${profile.experience_to_next}`,
+      ``,
+      `---`,
+      ``,
+    ];
+
+    log.forEach(({ role, content }) => {
+      if (role === 'user')           lines.push(`**Hunter:** ${content}`, ``);
+      else if (role === 'assistant') lines.push(`**GM:** ${content}`, ``);
+    });
+
+    const filename = `shanfro-${(profile.name || 'session').toLowerCase().replace(/\s+/g, '-')}.md`;
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(lines.join('\n'));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Save Slots ─────────────────────────────────────────────────────────────────
+
+function getSlotMeta(id) {
+  try {
+    const pp   = JSON.parse(fs.readFileSync(path.join(SLOTS_DIR, `slot_${id}`, 'player_profile.json'), 'utf-8'));
+    const stat = fs.statSync(path.join(SLOTS_DIR, `slot_${id}`, 'player_profile.json'));
+    return { id, empty: !pp.name, name: pp.name || null, job: pp.job || null, level: pp.level || 1, money: pp.money || 0, last_saved: stat.mtime.toISOString() };
+  } catch {
+    return { id, empty: true };
+  }
+}
+
+app.get('/api/slots', (req, res) => {
+  res.json([1, 2, 3].map(getSlotMeta));
+});
+
+app.post('/api/slots/:id/save', (req, res) => {
+  const { id } = req.params;
+  if (!['1', '2', '3'].includes(id)) return res.status(400).json({ error: 'Slot non valido' });
+  try {
+    const dir = path.join(SLOTS_DIR, `slot_${id}`);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    for (const file of SLOT_FILES) {
+      const src = path.join(DATA_DIR, file);
+      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dir, file));
+    }
+    res.json({ ok: true, meta: getSlotMeta(id) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/slots/:id/load', (req, res) => {
+  const { id } = req.params;
+  if (!['1', '2', '3'].includes(id)) return res.status(400).json({ error: 'Slot non valido' });
+  try {
+    const dir = path.join(SLOTS_DIR, `slot_${id}`);
+    for (const file of SLOT_FILES) {
+      const src = path.join(dir, file);
+      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(DATA_DIR, file));
+    }
+    res.json({
+      profile:   readData('player_profile.json'),
+      inventory: readData('inventory.json'),
+      skills:    readData('skills_library.json'),
+      gameState: readData('game_state.json'),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/slots/:id', (req, res) => {
+  const { id } = req.params;
+  if (!['1', '2', '3'].includes(id)) return res.status(400).json({ error: 'Slot non valido' });
+  try {
+    const dir = path.join(SLOTS_DIR, `slot_${id}`);
+    if (fs.existsSync(dir)) {
+      for (const file of SLOT_FILES) {
+        const fp = path.join(dir, file);
+        if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      }
+    }
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.listen(PORT, () => {

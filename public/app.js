@@ -3,10 +3,10 @@ const API = 'http://localhost:3000/api';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let busy = false;
-let currentState  = null;
-let worldMapZones = [];
+let currentState   = null;
+let worldMapZones  = [];
 let bestiaryFilter = 'all';
-let shopTab = 'buy';
+let shopTab        = 'buy';
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
 const chatMessages    = document.getElementById('chat-messages');
@@ -156,6 +156,7 @@ function updateUI({ profile, inventory, skills, gameState: gs }) {
     quests.map(q => `<div class="quest-item">${q}</div>`).join('');
 
   renderEnemy(inCombat ? gs.current_enemy : null);
+  renderCombatLog(gs.combat_log_entries || [], inCombat);
   renderEquipment(inventory.equipped || {});
   renderSkills(gs.skill_loadout || [], profile.skill_slots || 4);
   renderBag(inventory.bag || []);
@@ -187,6 +188,28 @@ function renderEnemy(enemy) {
   } else {
     details.innerHTML = '<div><em>non analizzato</em></div>';
   }
+}
+
+// ── Combat Log ────────────────────────────────────────────────────────────────
+const CL_ICONS = { damage_taken:'💥', heal:'💚', mp_change:'🔷', stm_cost:'⚡', exp_gain:'⭐', enemy_damage:'⚔', money:'💰' };
+
+function renderCombatLog(entries, inCombat) {
+  const panel = document.getElementById('combat-log-panel');
+  const list  = document.getElementById('combat-log-list');
+  panel.classList.toggle('hidden', !inCombat && entries.length === 0);
+  if (!entries.length) {
+    list.innerHTML = '<div style="font-size:10px;color:var(--text-dim);font-style:italic;padding:3px">Nessun evento ancora.</div>';
+    return;
+  }
+  list.innerHTML = entries.slice(-6).map(entry => {
+    const evHtml = (entry.events || []).map(ev => {
+      const icon    = CL_ICONS[ev.type] || '·';
+      const cssType = ev.type.replace(/_/g, '-');
+      return `<div class="cl-event cl-${cssType}"><span class="cl-icon">${icon}</span><span class="cl-text">${ev.text}</span></div>`;
+    }).join('');
+    return `<div class="cl-entry"><div class="cl-turn">T.${entry.n}</div>${evHtml}</div>`;
+  }).join('');
+  list.scrollTop = list.scrollHeight;
 }
 
 // ── Equipment ─────────────────────────────────────────────────────────────────
@@ -667,6 +690,94 @@ async function confirmSkillLoadout() {
 document.getElementById('sl-confirm').addEventListener('click', confirmSkillLoadout);
 document.getElementById('sl-cancel').addEventListener('click',  () => closeModal('modal-skills'));
 openSkillsModal.addEventListener('click', openSkillModal);
+
+// ────────────────────────────────────────────────────────────────────────────
+// ESPORTAZIONE SESSIONE
+// ────────────────────────────────────────────────────────────────────────────
+document.getElementById('export-btn').addEventListener('click', () => {
+  window.location.href = API + '/export';
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// SLOT DI SALVATAGGIO
+// ────────────────────────────────────────────────────────────────────────────
+document.getElementById('slots-btn').addEventListener('click', openSlotsModal);
+
+async function openSlotsModal() {
+  document.getElementById('modal-slots').classList.remove('hidden');
+  document.getElementById('slots-list').innerHTML =
+    '<div style="padding:20px;text-align:center;color:var(--text-dim);font-style:italic">Caricamento…</div>';
+  try {
+    const slots = await apiFetch('/slots');
+    renderSlots(slots);
+  } catch (e) {
+    document.getElementById('slots-list').innerHTML =
+      `<div style="padding:20px;text-align:center;color:var(--enemy)">⚠ ${e.message}</div>`;
+  }
+}
+
+function renderSlots(slots) {
+  document.getElementById('slots-list').innerHTML = slots.map(slot => {
+    const savedAt = slot.last_saved
+      ? new Date(slot.last_saved).toLocaleString('it-IT', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' })
+      : null;
+    return `<div class="slot-card" id="slot-card-${slot.id}">
+      <div class="slot-num">${slot.id}</div>
+      <div class="slot-info">
+        ${slot.empty
+          ? `<div class="slot-empty-label">Slot vuoto</div>`
+          : `<div class="slot-name">${slot.name}</div>
+             <div class="slot-meta">${slot.job || '?'} · Lv.${slot.level} · ${slot.money} R</div>
+             ${savedAt ? `<div class="slot-saved-at">Salvato: ${savedAt}</div>` : ''}`
+        }
+      </div>
+      <div class="slot-actions">
+        ${!slot.empty ? `<button class="slot-btn-load" onclick="loadSlot(${slot.id})">Carica</button>` : ''}
+        <button class="slot-btn-save" onclick="saveSlot(${slot.id})">Salva qui</button>
+        ${!slot.empty ? `<button class="slot-btn-del" onclick="deleteSlot(${slot.id})" title="Elimina">✕</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function saveSlot(id) {
+  try {
+    await apiFetch(`/slots/${id}/save`, { method: 'POST' });
+    addSystemMsg(`Partita salvata nello slot ${id}.`);
+    const slots = await apiFetch('/slots');
+    renderSlots(slots);
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+}
+
+async function loadSlot(id) {
+  if (!confirm(`Caricare lo slot ${id}? La sessione corrente non salvata andrà persa.`)) return;
+  try {
+    const newState = await apiFetch(`/slots/${id}/load`, { method: 'POST' });
+    currentState = newState;
+    chatMessages.innerHTML = '';
+    const log = newState.gameState.session_log || [];
+    const SKIP = new Set(['Inizia il gioco.']);
+    log.forEach(({ role, content }) => {
+      if (role === 'user' && !SKIP.has(content)) addPlayerMsg(content, true);
+      else if (role === 'assistant') addGMMsg(content, true);
+    });
+    if (log.length) { addSystemMsg('— slot caricato —'); scrollBottom(); }
+    updateUI(newState);
+    closeModal('modal-slots');
+    enableInput();
+    addSystemMsg(`Slot ${id} caricato.`);
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+}
+
+async function deleteSlot(id) {
+  if (!confirm(`Eliminare lo slot ${id}? Azione irreversibile.`)) return;
+  try {
+    await apiFetch(`/slots/${id}`, { method: 'DELETE' });
+    const slots = await apiFetch('/slots');
+    renderSlots(slots);
+    addSystemMsg(`Slot ${id} eliminato.`);
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+}
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 init();
