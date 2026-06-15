@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shangri-La Frontier</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header class="top-bar">
+    <div class="game-title">◈ SHANGRI-LA FRONTIER</div>
+    <div class="player-header">
+      <span id="player-job" class="job-badge">?</span>
+      <span id="player-name" class="player-name">—</span>
+      <span class="sep">|</span>
+      <span id="player-level">Lv.—</span>
+      <span class="sep">|</span>
+      <span id="player-money">— R</span>
+      <button id="reset-btn" class="reset-btn" title="Nuova partita">↺</button>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <!-- ── Pannello sinistro: Statistiche ── -->
+    <aside class="panel left-panel">
+
+      <div class="panel-section">
+        <div class="section-title">VITALI</div>
+
+        <div class="resource" id="res-hp">
+          <div class="res-header">
+            <span class="res-label">HP</span>
+            <span class="res-val" id="hp-val">—</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill bar-hp" id="bar-hp"></div></div>
+        </div>
+
+        <div class="resource" id="res-mp">
+          <div class="res-header">
+            <span class="res-label">MP</span>
+            <span class="res-val" id="mp-val">—</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill bar-mp" id="bar-mp"></div></div>
+        </div>
+
+        <div class="resource" id="res-stm">
+          <div class="res-header">
+            <span class="res-label">STM</span>
+            <span class="res-val" id="stm-val">—</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill bar-stm" id="bar-stm"></div></div>
+        </div>
+
+        <div class="resource">
+          <div class="res-header">
+            <span class="res-label">EXP</span>
+            <span class="res-val" id="exp-val">—</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill bar-exp" id="bar-exp"></div></div>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title">STATISTICHE</div>
+        <div class="stat-grid">
+          <div class="stat-row"><span class="sn">STR</span><span class="sv" id="sv-STR">—</span></div>
+          <div class="stat-row"><span class="sn">DEX</span><span class="sv" id="sv-DEX">—</span></div>
+          <div class="stat-row"><span class="sn">AGI</span><span class="sv" id="sv-AGI">—</span></div>
+          <div class="stat-row"><span class="sn">TEC</span><span class="sv" id="sv-TEC">—</span></div>
+          <div class="stat-row"><span class="sn">VIT</span><span class="sv" id="sv-VIT">—</span></div>
+          <div class="stat-row"><span class="sn">LUC</span><span class="sv" id="sv-LUC">—</span></div>
+        </div>
+        <div id="stat-points-box" class="stat-points hidden">
+          <span id="stat-points-count">0</span> punti stat disponibili
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title">POSIZIONE</div>
+        <div id="location-text" class="location-text">—</div>
+      </div>
+
+      <div class="panel-section" id="quest-section" style="display:none">
+        <div class="section-title">QUEST ATTIVE</div>
+        <div id="quest-list" class="quest-list"></div>
+      </div>
+
+    </aside>
+
+    <!-- ── Chat centrale ── -->
+    <main class="chat-panel">
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-footer">
+        <textarea
+          id="chat-input"
+          class="chat-input"
+          placeholder="Scrivi un'azione o una risposta al GM… (Invio per inviare, Shift+Invio per andare a capo)"
+          rows="2"
+          disabled
+        ></textarea>
+        <button id="send-btn" class="send-btn" disabled>▶</button>
+      </div>
+    </main>
+
+    <!-- ── Pannello destro: Inventario & Skill ── -->
+    <aside class="panel right-panel">
+
+      <div class="panel-section">
+        <div class="section-title">EQUIPAGGIAMENTO</div>
+        <div id="equipment-slots" class="equipment-slots"></div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title">SKILL LOADOUT</div>
+        <div id="skill-slots" class="skill-slots"></div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title">BORSA</div>
+        <div id="bag-list" class="bag-list"></div>
+      </div>
+
+    </aside>
+
+  </div>
+
+  <!-- Level up toast -->
+  <div id="levelup-toast" class="levelup-toast hidden">
+    <div class="lu-label">LEVEL UP</div>
+    <div id="lu-level" class="lu-level">—</div>
+    <div class="lu-sub">+3 punti stat sbloccati</div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "name": "",
+  "job": "",
+  "level": 1,
+  "experience": 0,
+  "experience_to_next": 100,
+  "stats": {
+    "HP": { "current": 100, "max": 100 },
+    "MP": { "current": 50, "max": 50 },
+    "STM": { "current": 100, "max": 100 },
+    "STR": 10,
+    "DEX": 10,
+    "AGI": 10,
+    "TEC": 10,
+    "VIT": 10,
+    "LUC": 10
+  },
+  "stat_points_available": 15,
+  "money": 500,
+  "skill_slots": 4
+}

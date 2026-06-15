@@ -1,0 +1,31 @@
+{
+  "skills": [
+    {
+      "id": "basic_slash",
+      "name": "Colpo Base",
+      "type": "physical",
+      "requirements": {},
+      "cost": { "STM": 5 },
+      "effect": "Attacco fisico standard. Danno = STR * 1.2",
+      "unlocked_by_default": true
+    },
+    {
+      "id": "basic_guard",
+      "name": "Parata Base",
+      "type": "physical",
+      "requirements": {},
+      "cost": { "STM": 8 },
+      "effect": "Riduce il prossimo danno subito del 30%. Dipende da VIT.",
+      "unlocked_by_default": true
+    },
+    {
+      "id": "analyze",
+      "name": "Analisi",
+      "type": "utility",
+      "requirements": {},
+      "cost": { "MP": 10 },
+      "effect": "Rivela statistiche e punti deboli di un nemico o oggetto. Precisione dipende da TEC e LUC.",
+      "unlocked_by_default": true
+    }
+  ]
+}

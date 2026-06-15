@@ -1,0 +1,24 @@
+{
+  "equipped": {
+    "weapon": null,
+    "offhand": null,
+    "head": null,
+    "chest": null,
+    "legs": null,
+    "boots": null,
+    "accessory_1": null,
+    "accessory_2": null
+  },
+  "stat_bonuses_from_equipment": {
+    "STR": 0,
+    "DEX": 0,
+    "AGI": 0,
+    "TEC": 0,
+    "VIT": 0,
+    "LUC": 0,
+    "HP_bonus": 0,
+    "MP_bonus": 0,
+    "STM_bonus": 0
+  },
+  "bag": []
+}
