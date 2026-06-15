@@ -17,7 +17,7 @@
       <span id="player-level">Lv.—</span>
       <span class="sep">|</span>
       <span id="player-money">— R</span>
-      <button id="reset-btn" class="reset-btn" title="Nuova partita">↺</button>
+      <button id="reset-btn" class="icon-btn" title="Nuova partita">↺</button>
     </div>
   </header>
 
@@ -28,42 +28,29 @@
 
       <div class="panel-section">
         <div class="section-title">VITALI</div>
-
         <div class="resource" id="res-hp">
-          <div class="res-header">
-            <span class="res-label">HP</span>
-            <span class="res-val" id="hp-val">—</span>
-          </div>
+          <div class="res-header"><span class="res-label">HP</span><span class="res-val" id="hp-val">—</span></div>
           <div class="bar-track"><div class="bar-fill bar-hp" id="bar-hp"></div></div>
         </div>
-
         <div class="resource" id="res-mp">
-          <div class="res-header">
-            <span class="res-label">MP</span>
-            <span class="res-val" id="mp-val">—</span>
-          </div>
+          <div class="res-header"><span class="res-label">MP</span><span class="res-val" id="mp-val">—</span></div>
           <div class="bar-track"><div class="bar-fill bar-mp" id="bar-mp"></div></div>
         </div>
-
         <div class="resource" id="res-stm">
-          <div class="res-header">
-            <span class="res-label">STM</span>
-            <span class="res-val" id="stm-val">—</span>
-          </div>
+          <div class="res-header"><span class="res-label">STM</span><span class="res-val" id="stm-val">—</span></div>
           <div class="bar-track"><div class="bar-fill bar-stm" id="bar-stm"></div></div>
         </div>
-
         <div class="resource">
-          <div class="res-header">
-            <span class="res-label">EXP</span>
-            <span class="res-val" id="exp-val">—</span>
-          </div>
+          <div class="res-header"><span class="res-label">EXP</span><span class="res-val" id="exp-val">—</span></div>
           <div class="bar-track"><div class="bar-fill bar-exp" id="bar-exp"></div></div>
         </div>
       </div>
 
       <div class="panel-section">
-        <div class="section-title">STATISTICHE</div>
+        <div class="section-title-row">
+          <span class="section-title">STATISTICHE</span>
+          <button id="open-stats-modal" class="btn-tiny hidden" title="Distribuisci punti stat">+</button>
+        </div>
         <div class="stat-grid">
           <div class="stat-row"><span class="sn">STR</span><span class="sv" id="sv-STR">—</span></div>
           <div class="stat-row"><span class="sn">DEX</span><span class="sv" id="sv-DEX">—</span></div>
@@ -93,19 +80,32 @@
     <main class="chat-panel">
       <div class="chat-messages" id="chat-messages"></div>
       <div class="chat-footer">
-        <textarea
-          id="chat-input"
-          class="chat-input"
+        <textarea id="chat-input" class="chat-input"
           placeholder="Scrivi un'azione o una risposta al GM… (Invio per inviare, Shift+Invio per andare a capo)"
-          rows="2"
-          disabled
-        ></textarea>
+          rows="2" disabled></textarea>
         <button id="send-btn" class="send-btn" disabled>▶</button>
       </div>
     </main>
 
-    <!-- ── Pannello destro: Inventario & Skill ── -->
+    <!-- ── Pannello destro: Combattimento, Inventario, Skill ── -->
     <aside class="panel right-panel">
+
+      <!-- Pannello nemico (visibile solo in combattimento) -->
+      <div id="combat-panel" class="panel-section combat-panel hidden">
+        <div class="section-title combat-title">⚔ NEMICO</div>
+        <div class="enemy-header">
+          <span id="enemy-name" class="enemy-name">—</span>
+          <span id="enemy-tier" class="enemy-tier">?</span>
+        </div>
+        <div class="resource">
+          <div class="res-header">
+            <span class="res-label">HP</span>
+            <span class="res-val" id="enemy-hp-val">—</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill bar-enemy" id="bar-enemy-hp"></div></div>
+        </div>
+        <div id="enemy-details" class="enemy-details"></div>
+      </div>
 
       <div class="panel-section">
         <div class="section-title">EQUIPAGGIAMENTO</div>
@@ -113,7 +113,10 @@
       </div>
 
       <div class="panel-section">
-        <div class="section-title">SKILL LOADOUT</div>
+        <div class="section-title-row">
+          <span class="section-title">SKILL LOADOUT</span>
+          <button id="open-skills-modal" class="btn-tiny" title="Gestisci skill">✎</button>
+        </div>
         <div id="skill-slots" class="skill-slots"></div>
       </div>
 
@@ -123,7 +126,32 @@
       </div>
 
     </aside>
+  </div>
 
+  <!-- ── Modal: Distribuzione Punti Stat ── -->
+  <div id="modal-stats" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-title">DISTRIBUISCI PUNTI STAT</div>
+      <div class="modal-sub">Punti disponibili: <span id="sa-remaining" class="accent">0</span></div>
+      <div class="sa-grid" id="sa-grid"></div>
+      <div class="modal-actions">
+        <button id="sa-cancel" class="btn-secondary">Annulla</button>
+        <button id="sa-confirm" class="btn-primary">Conferma</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Gestione Skill Loadout ── -->
+  <div id="modal-skills" class="modal-overlay hidden">
+    <div class="modal-box modal-box-wide">
+      <div class="modal-title">GESTISCI SKILL LOADOUT</div>
+      <div class="modal-sub">Slot selezionati: <span id="sl-used" class="accent">0</span> / <span id="sl-max">4</span></div>
+      <div id="sl-list" class="sl-list"></div>
+      <div class="modal-actions">
+        <button id="sl-cancel" class="btn-secondary">Annulla</button>
+        <button id="sl-confirm" class="btn-primary">Salva Loadout</button>
+      </div>
+    </div>
   </div>
 
   <!-- Level up toast -->

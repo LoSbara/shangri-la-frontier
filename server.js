@@ -70,7 +70,7 @@ function buildSystemPrompt(profile, inventory, skills, gameState) {
 
   const questLines = (gameState.quests_active || []).join(', ') || 'nessuna';
 
-  const stateBlock = isNew
+  let stateBlock = isNew
     ? `## PERSONAGGIO NON CREATO — AVVIA CREAZIONE
 Guida il giocatore passo per passo:
 1. Presentati come il Sistema di Shangri-La Frontier e descrivi la città di partenza Crysta
@@ -109,6 +109,16 @@ ${loadoutLines}
 
 Posizione: ${gameState.location} (${gameState.zone_type})
 Quest attive: ${questLines}`;
+
+  if (!isNew && gameState.combat_active && gameState.current_enemy) {
+    const e = gameState.current_enemy;
+    const statsLine = e.revealed
+      ? `STR ${e.stats?.STR ?? '?'} | AGI ${e.stats?.AGI ?? '?'} | Resistenza ${e.stats?.resistenza ?? 0}% | Debolezze: ${e.weaknesses?.join(', ') || 'nessuna'}`
+      : 'stat non ancora analizzate';
+    stateBlock += `\n\n⚔ COMBATTIMENTO ATTIVO
+Nemico: ${e.name} (Tier ${e.tier ?? '?'}, Lv.${e.level ?? '?'}) — HP: ${e.hp?.current ?? '?'}/${e.hp?.max ?? '?'}
+${statsLine}`;
+  }
 
   return `Sei il Game Master di SHANGRI-LA FRONTIER, un VRMMO testuale hardcore. Rispondi sempre in italiano.
 Ogni esito è determinato dalle statistiche del personaggio. Non inventare numeri: usa le stat attuali per calcolare tutto.
@@ -152,7 +162,17 @@ REGOLE state_updates:
 - Per stat base (STR, DEX ecc.) usa solo il numero: { "STR": 15 }
 - Ometti state_updates se nulla cambia
 - ui_events può contenere: "level_up", "skill_unlocked", "item_found"
-- Se il giocatore sblocca una nuova skill, includila in new_skills con: id, name, type, requirements, cost, effect`;
+- Se il giocatore sblocca una nuova skill, includila in new_skills con: id, name, type, requirements, cost, effect
+
+## GESTIONE COMBATTIMENTO
+Per iniziare uno scontro:
+"game_state": { "combat_active": true, "zone_type": "combat_zone", "current_enemy": { "name": "Nome", "tier": "D", "level": 5, "hp": { "current": 80, "max": 80 }, "stats": { "STR": 12, "AGI": 8, "resistenza": 10 }, "weaknesses": [], "revealed": false } }
+Per aggiornare HP nemico durante il combattimento:
+"game_state": { "current_enemy": { "hp": { "current": 45 } } }
+Per rivelare stat nemico dopo Analisi:
+"game_state": { "current_enemy": { "revealed": true, "weaknesses": ["fuoco"] } }
+Per terminare il combattimento:
+"game_state": { "combat_active": false, "zone_type": "safe_zone", "current_enemy": null }`;
 }
 
 // ─── Level Up ─────────────────────────────────────────────────────────────────
@@ -305,6 +325,50 @@ app.post('/api/reset', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// POST /api/allocate — spendi punti stat
+app.post('/api/allocate', (req, res) => {
+  const { allocations } = req.body;
+  if (!allocations || typeof allocations !== 'object') {
+    return res.status(400).json({ error: 'allocations mancanti' });
+  }
+  const profile = readData('player_profile.json');
+  const total = Object.values(allocations).reduce((sum, v) => sum + Number(v), 0);
+  if (total > (profile.stat_points_available || 0)) {
+    return res.status(400).json({ error: 'Punti insufficienti' });
+  }
+  const valid = ['STR', 'DEX', 'AGI', 'TEC', 'VIT', 'LUC'];
+  for (const [stat, amount] of Object.entries(allocations)) {
+    if (valid.includes(stat) && Number(amount) > 0) {
+      profile.stats[stat] = (profile.stats[stat] || 0) + Number(amount);
+    }
+  }
+  profile.stat_points_available -= total;
+  writeData('player_profile.json', profile);
+  res.json({ profile });
+});
+
+// POST /api/skill-loadout — aggiorna skill loadout
+app.post('/api/skill-loadout', (req, res) => {
+  const { skill_ids } = req.body;
+  if (!Array.isArray(skill_ids)) {
+    return res.status(400).json({ error: 'skill_ids deve essere un array' });
+  }
+  const profile = readData('player_profile.json');
+  const skills = readData('skills_library.json');
+  const gameState = readData('game_state.json');
+  if (skill_ids.length > (profile.skill_slots || 4)) {
+    return res.status(400).json({ error: `Massimo ${profile.skill_slots} skill nel loadout` });
+  }
+  gameState.skill_loadout = skill_ids
+    .map(id => skills.skills.find(s => s.id === id))
+    .filter(Boolean);
+  writeData('game_state.json', gameState);
+  res.json({
+    skill_loadout: gameState.skill_loadout,
+    gameState: readData('game_state.json'),
+  });
 });
 
 app.listen(PORT, () => {
