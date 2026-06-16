@@ -1,0 +1,179 @@
+{
+  "dungeons": [
+    {
+      "id": "cripta_crysta_01",
+      "name": "Cripta di Crysta",
+      "description": "Antichi corridoi sotto la città, dimora di non-morti e trappole dimenticate.",
+      "min_level": 3,
+      "mob_tier": "D",
+      "rooms": [
+        {
+          "id": "ingresso",
+          "name": "Ingresso della Cripta",
+          "type": "empty",
+          "description_blueprint": "Un corridoio di pietra umida con torce ancora accese, come se qualcuno le avesse riaccese di recente. L'aria sa di polvere e rame.",
+          "connections": ["corridoio_nord", "corridoio_est"]
+        },
+        {
+          "id": "corridoio_nord",
+          "name": "Corridoio delle Lastre",
+          "type": "trap",
+          "trap_dc": 12,
+          "trap_stat": "AGI",
+          "trap_damage": 15,
+          "description_blueprint": "Lastre sul pavimento con incisioni irregolari. Alcune sono leggermente più in rilievo — sensori di pressione. Chi sbaglia passo attiva dardi avvelenati nelle pareti.",
+          "connections": ["ingresso", "sala_ossari"]
+        },
+        {
+          "id": "corridoio_est",
+          "name": "Corridoio Oscuro",
+          "type": "combat",
+          "description_blueprint": "Scheletri incompleti che si alzano lentamente dai resti sul pavimento. Non sembrano particolarmente intelligenti, ma non si fermano.",
+          "connections": ["ingresso", "anticamera"]
+        },
+        {
+          "id": "sala_ossari",
+          "name": "Sala degli Ossari",
+          "type": "combat",
+          "description_blueprint": "Nicchie nelle pareti ospitano centinaia di crani. Due scheletri armati montano la guardia davanti a un arco di pietra.",
+          "connections": ["corridoio_nord", "sala_trono"]
+        },
+        {
+          "id": "anticamera",
+          "name": "Anticamera dei Sigilli",
+          "type": "puzzle",
+          "puzzle_stat": "TEC",
+          "puzzle_dc": 12,
+          "description_blueprint": "Tre statue tengono fiaccole spente. Un'iscrizione sul muro descrive l'ordine corretto in cui accenderle. Chi decifra i simboli (TEC >= 12) sblocca il passaggio senza conseguenze. Chi sbaglia sblocca una trappola magica.",
+          "connections": ["corridoio_est", "sala_trono"]
+        },
+        {
+          "id": "sala_trono",
+          "name": "Sala del Trono",
+          "type": "boss",
+          "description_blueprint": "Un trono di ferro ossidato domina la sala. Sul trono, qualcosa si muove — troppo lentamente per essere vivo, troppo preciso per essere morto. È il Custode.",
+          "connections": ["sala_ossari", "anticamera", "sala_tesoro"]
+        },
+        {
+          "id": "sala_tesoro",
+          "name": "Sala del Tesoro",
+          "type": "reward",
+          "description_blueprint": "Forzieri aperti e sigillati, monete sparse sul pavimento. L'aria sa di muffa e oro. Qualcuno è stato qui prima — ma ha lasciato le cose più pesanti.",
+          "connections": ["sala_trono"]
+        }
+      ]
+    },
+    {
+      "id": "grotta_aokara_01",
+      "name": "Rifugio dei Cacciatori Perduti",
+      "description": "Un labirinto di caverne e radici nella Foresta di Aokara, dimora di bestie e antichi segreti.",
+      "min_level": 5,
+      "mob_tier": "C",
+      "rooms": [
+        {
+          "id": "entrata_foresta",
+          "name": "Entrata della Grotta",
+          "type": "empty",
+          "description_blueprint": "Radici grandi come muri formano un arco naturale. L'interno è buio e umido. Si sentono versi in lontananza.",
+          "connections": ["sentiero_rovi", "radura_nascosta"]
+        },
+        {
+          "id": "sentiero_rovi",
+          "name": "Sentiero dei Rovi",
+          "type": "trap",
+          "trap_dc": 14,
+          "trap_stat": "DEX",
+          "trap_damage": 20,
+          "description_blueprint": "Spine affilate ovunque. Muoversi attraverso senza tagliarsi richiede precisione e agilità estrema.",
+          "connections": ["entrata_foresta", "tana_bestia"]
+        },
+        {
+          "id": "radura_nascosta",
+          "name": "Radura dei Funghi",
+          "type": "empty",
+          "description_blueprint": "Una piccola radura illuminata da funghi bioluminescenti. Tranquilla — per ora. Un vecchio accampamento di cacciatori abbandonato.",
+          "connections": ["entrata_foresta", "tana_bestia", "altare_antico"]
+        },
+        {
+          "id": "tana_bestia",
+          "name": "Tana della Bestia",
+          "type": "combat",
+          "description_blueprint": "Ossa di prede precedenti tutt'intorno. L'odore acre è intenso. Il predatore è ancora qui e non è contento di avere ospiti.",
+          "connections": ["sentiero_rovi", "radura_nascosta", "grotta_profonda"]
+        },
+        {
+          "id": "altare_antico",
+          "name": "Altare Primordiale",
+          "type": "puzzle",
+          "puzzle_stat": "LUC",
+          "puzzle_dc": 14,
+          "description_blueprint": "Un altare di pietra con simboli incisi. Un'offerta di sangue o un oggetto di valore potrebbe attivare qualcosa. Chi ha LUC >= 14 percepisce la risposta corretta.",
+          "connections": ["radura_nascosta", "grotta_profonda"]
+        },
+        {
+          "id": "grotta_profonda",
+          "name": "Grotta Profonda",
+          "type": "boss",
+          "description_blueprint": "Il fondo della caverna. Qualcosa di enorme respira nell'oscurità. L'aria vibra. Non puoi vedere cosa c'è, ma puoi sentire il suo sguardo.",
+          "connections": ["tana_bestia", "altare_antico", "camera_cristalli"]
+        },
+        {
+          "id": "camera_cristalli",
+          "name": "Camera dei Cristalli",
+          "type": "reward",
+          "description_blueprint": "Cristalli scintillanti di ogni colore coprono le pareti. Il tesoro del predatore, accumulato per anni. Qualcosa brilla tra i cristalli.",
+          "connections": ["grotta_profonda"]
+        }
+      ]
+    },
+    {
+      "id": "rovine_primordiali_dungeon",
+      "name": "Rovine Primordiali",
+      "description": "Le rovine di una civiltà scomparsa prima di Shangri-La. Pericolose, misteriose, irripetibili.",
+      "min_level": 10,
+      "mob_tier": "A",
+      "rooms": [
+        {
+          "id": "cancello_esterno",
+          "name": "Cancello Esterno",
+          "type": "empty",
+          "description_blueprint": "Pietre fluttuanti che sfidano la gravità. Iscrizioni che brillano di luce senza sorgente.",
+          "connections": ["sala_venti", "cripta_memoria"]
+        },
+        {
+          "id": "sala_venti",
+          "name": "Sala dei Venti",
+          "type": "trap",
+          "trap_dc": 16,
+          "trap_stat": "AGI",
+          "trap_damage": 35,
+          "description_blueprint": "Correnti d'aria invisibili che tagliano come lame. Il pavimento mostra i segni di chi non è passato indenne.",
+          "connections": ["cancello_esterno", "altare_centrale"]
+        },
+        {
+          "id": "cripta_memoria",
+          "name": "Cripta della Memoria",
+          "type": "puzzle",
+          "puzzle_stat": "TEC",
+          "puzzle_dc": 16,
+          "description_blueprint": "Frammenti di visioni del passato. Chi riesce a interpretarli (TEC >= 16) ottiene una comprensione delle debolezze dell'Entità.",
+          "connections": ["cancello_esterno", "altare_centrale"]
+        },
+        {
+          "id": "altare_centrale",
+          "name": "Altare Centrale",
+          "type": "combat",
+          "description_blueprint": "Il cuore delle rovine. Guardiani di pietra animata difendono l'accesso alla camera finale.",
+          "connections": ["sala_venti", "cripta_memoria", "camera_entita"]
+        },
+        {
+          "id": "camera_entita",
+          "name": "Camera dell'Entità",
+          "type": "boss",
+          "description_blueprint": "La voce non ha direzione. L'Entità Primordiale — senza forma, senza nome — attende chi osa arrivare fin qui.",
+          "connections": ["altare_centrale"]
+        }
+      ]
+    }
+  ]
+}

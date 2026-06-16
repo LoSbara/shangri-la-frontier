@@ -96,9 +96,10 @@ const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 function autoBackup(profile, gameState, uiEvents) {
   try {
-    const isLevelUp = uiEvents.includes('level_up');
-    const uniqueDone = Object.values(gameState.unique_scenario_flags || {}).filter(Boolean).length;
-    if (!isLevelUp && uniqueDone === 0) return;
+    const shouldBackup = uiEvents.includes('level_up') ||
+                         uiEvents.includes('quest_completed') ||
+                         uiEvents.includes('unique_event_completed');
+    if (!shouldBackup) return;
     const BACKUP_DIR = path.join(__dirname, 'data', 'backups');
     if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -158,6 +159,121 @@ function recalcEquipmentBonuses(inventory) {
     }
   }
   inventory.stat_bonuses_from_equipment = bonuses;
+}
+
+// ─── Unique Event Trigger Check ───────────────────────────────────────────────
+
+function checkUniqueEventTriggers(profile, inventory, gameState) {
+  if (gameState.combat_active) return null; // mai interrompere un combattimento
+  let eventsData;
+  try { eventsData = readData('unique_events.json'); } catch { return null; }
+
+  const flags    = gameState.unique_scenario_flags || {};
+  const counters = profile.action_counters || {};
+  const rep      = profile.reputation || {};
+
+  for (const event of (eventsData.events || [])) {
+    if (flags[event.flag]) continue; // già completato/attivato
+    const req = event.requirements || {};
+
+    // Zona: lista esatta
+    if (req.locations && !req.locations.includes(gameState.location)) continue;
+    // Zona: contains (es. "Aokara")
+    if (req.location_includes && !(gameState.location || '').includes(req.location_includes)) continue;
+    // Sub-location contains (es. "Taverna")
+    if (req.sub_location_includes && !(gameState.sub_location || '').toLowerCase().includes(req.sub_location_includes.toLowerCase())) continue;
+    // Zone type esatto o escluso
+    if (req.zone_type     && gameState.zone_type !== req.zone_type) continue;
+    if (req.not_zone_type && gameState.zone_type === req.not_zone_type) continue;
+    // Livello minimo
+    if (req.level && profile.level < req.level) continue;
+    // Statistiche (con bonus equip)
+    if (req.stats) {
+      const ok = Object.entries(req.stats).every(([s, v]) => totalStat(profile, inventory, s) >= v);
+      if (!ok) continue;
+    }
+    // Reputazione >= soglia
+    if (req.reputation) {
+      const ok = Object.entries(req.reputation).every(([f, v]) => (rep[f] || 0) >= v);
+      if (!ok) continue;
+    }
+    // Reputazione > 0 (soglia positiva)
+    if (req.reputation_positive) {
+      const ok = Object.entries(req.reputation_positive).every(([f, v]) => (rep[f] || 0) >= v);
+      if (!ok) continue;
+    }
+    // Contatori
+    if (req.counters) {
+      const ok = Object.entries(req.counters).every(([key, val]) => {
+        const c = counters[key];
+        return Array.isArray(c) ? c.length >= val : (c || 0) >= val;
+      });
+      if (!ok) continue;
+    }
+
+    return event; // primo evento che soddisfa tutti i requisiti
+  }
+  return null;
+}
+
+// ─── Dungeon System ───────────────────────────────────────────────────────────
+
+function getDungeonContext(gameState) {
+  if (gameState.zone_type !== 'dungeon' || !gameState.current_dungeon_id) return null;
+  let data;
+  try { data = readData('dungeons.json'); } catch { return null; }
+  const dungeon = (data.dungeons || []).find(d => d.id === gameState.current_dungeon_id);
+  if (!dungeon) return null;
+  const room = (dungeon.rooms || []).find(r => r.id === gameState.current_room_id);
+  return room ? { dungeon, room } : { dungeon, room: dungeon.rooms[0] };
+}
+
+function validateDungeonMove(gameState, targetRoomId) {
+  const ctx = getDungeonContext(gameState);
+  if (!ctx) return false;
+  return (ctx.room.connections || []).includes(targetRoomId);
+}
+
+// ─── Quest Progress Check ─────────────────────────────────────────────────────
+
+function checkQuestProgress(profile, inventory, gameState) {
+  let db;
+  try { db = readData('quests_database.json'); } catch { return []; }
+
+  const completed = [];
+  const counters  = profile.action_counters || {};
+  const stillActive = [];
+
+  for (const questId of (gameState.quests_active || [])) {
+    const quest = (db.quests || []).find(q => q.id === questId);
+    if (!quest) { stillActive.push(questId); continue; }
+
+    const raw = counters[quest.target_counter];
+    const current = Array.isArray(raw) ? raw.length : (raw || 0);
+
+    if (current >= quest.target_value) {
+      // Eroga reward lato server
+      profile.experience = (profile.experience || 0) + (quest.rewards.exp    || 0);
+      profile.money      = (profile.money      || 0) + (quest.rewards.money  || 0);
+      if (quest.rewards.stat_points) {
+        profile.stat_points_available = (profile.stat_points_available || 0) + quest.rewards.stat_points;
+      }
+      if (Array.isArray(quest.rewards.items)) {
+        inventory.bag = inventory.bag || [];
+        for (const item of quest.rewards.items) {
+          inventory.bag.push({ ...item, id: item.id || `qr_${questId}`, quantity: 1, appraised: true });
+        }
+      }
+      gameState.quests_completed = gameState.quests_completed || [];
+      if (!gameState.quests_completed.includes(questId)) gameState.quests_completed.push(questId);
+      completed.push(quest);
+    } else {
+      stillActive.push(questId);
+    }
+  }
+
+  gameState.quests_active = stillActive;
+  return completed;
 }
 
 // ─── System Prompt ────────────────────────────────────────────────────────────
@@ -624,7 +740,41 @@ app.post('/api/chat', async (req, res) => {
     }
 
     const history = (gameState.session_log || []).slice(-12);
-    const systemPrompt = buildSystemPrompt(profile, inventory, skills, gameState);
+
+    // ── Server directives: calcolate PRIMA di chiamare Gemini ────────────────
+    let serverDirectives = '';
+
+    // 1. Evento unico attivabile matematicamente
+    const triggeredEvent = checkUniqueEventTriggers(profile, inventory, gameState);
+    if (triggeredEvent) {
+      serverDirectives +=
+        `[⚡ EVENTO UNICO OBBLIGATORIO — ID: "${triggeredEvent.id}" — "${triggeredEvent.name}"]\n` +
+        `Ignora parzialmente l'input del giocatore per questo turno: devi introdurre il seguente scenario unico nella narrazione.\n` +
+        `Hook: "${triggeredEvent.narrative_hook}"\n` +
+        `Quando l'evento è completato includi in state_updates.game_state: ` +
+        `{ "unique_scenario_flags": { "${triggeredEvent.flag}": true } }\n\n`;
+    }
+
+    // 2. Dungeon context (stanza corrente + connessioni valide)
+    const dungCtx = getDungeonContext(gameState);
+    if (dungCtx) {
+      const { dungeon, room } = dungCtx;
+      const connList = (room.connections || []).join(', ') || 'nessuna';
+      serverDirectives +=
+        `[🗺️ DUNGEON: ${dungeon.name} — Stanza: "${room.name}" (${room.id}) — tipo: ${room.type}]\n` +
+        `${room.description_blueprint}\n` +
+        `Stanze raggiungibili: ${connList}\n`;
+      if (room.type === 'trap')   serverDirectives += `Richiedi un check di ${room.trap_stat || 'AGI'} (DC ${room.trap_dc || 12}). Fallire infligge ${room.trap_damage || 15} danni.\n`;
+      if (room.type === 'puzzle') serverDirectives += `Richiedi un check di ${room.puzzle_stat || 'TEC'} (DC ${room.puzzle_dc || 12}) per risolvere il puzzle senza conseguenze.\n`;
+      if (room.type === 'boss')   serverDirectives += `Stanza boss — descrivi l'ingresso in modo cinematico e avvia il combattimento.\n`;
+      if (room.type === 'reward') serverDirectives += `Stanza ricompensa — usa bag_add per assegnare un tesoro adeguato al livello del dungeon.\n`;
+      serverDirectives +=
+        `Quando il giocatore si sposta, aggiorna state_updates.game_state con: { "current_room_id": "<id_stanza>" }. ` +
+        `ID validi: ${connList}.\n\n`;
+    }
+
+    const systemPrompt = (serverDirectives ? serverDirectives : '') +
+      buildSystemPrompt(profile, inventory, skills, gameState);
 
     // Build Gemini-compatible history (roles must strictly alternate user/model)
     const geminiHistory = [];
@@ -673,10 +823,35 @@ app.post('/api/chat', async (req, res) => {
     const snapMoney   = profile.money;
     const snapEnemyHP = gameState.current_enemy?.hp?.current ?? null;
 
+    // Validate dungeon room transition BEFORE deepMerge
+    if (parsed.state_updates?.game_state?.current_room_id && gameState.zone_type === 'dungeon') {
+      const targetRoom = parsed.state_updates.game_state.current_room_id;
+      if (!validateDungeonMove(gameState, targetRoom)) {
+        console.warn(`[Dungeon] Spostamento non valido verso "${targetRoom}" rifiutato.`);
+        delete parsed.state_updates.game_state.current_room_id;
+      }
+    }
+
     // Apply state updates
     if (parsed.state_updates?.player) deepMerge(profile, parsed.state_updates.player);
     if (parsed.state_updates?.inventory) deepMerge(inventory, parsed.state_updates.inventory);
     if (parsed.state_updates?.game_state) deepMerge(gameState, parsed.state_updates.game_state);
+
+    // Auto-set stanza iniziale quando si entra in un dungeon senza current_room_id
+    if (gameState.zone_type === 'dungeon' && gameState.current_dungeon_id && !gameState.current_room_id) {
+      try {
+        const dData = readData('dungeons.json');
+        const dung  = (dData.dungeons || []).find(d => d.id === gameState.current_dungeon_id);
+        if (dung?.rooms?.length > 0) gameState.current_room_id = dung.rooms[0].id;
+      } catch {}
+    }
+    // Traccia stanze visitate
+    if (gameState.zone_type === 'dungeon' && gameState.current_room_id) {
+      gameState.rooms_visited = gameState.rooms_visited || [];
+      if (!gameState.rooms_visited.includes(gameState.current_room_id)) {
+        gameState.rooms_visited.push(gameState.current_room_id);
+      }
+    }
 
     // bag_add: appende oggetti alla borsa senza sostituire l'array
     if (parsed.state_updates?.bag_add) {
@@ -831,6 +1006,24 @@ app.post('/api/chat', async (req, res) => {
 
     profile.action_counters = counters;
 
+    // ── Quest Progress ────────────────────────────────────────────────────────
+    const completedQuests = checkQuestProgress(profile, inventory, gameState);
+    if (completedQuests.length > 0) {
+      completedQuests.forEach(q => {
+        uiEvents.push('quest_completed');
+        // Ri-check level up dopo EXP da quest
+        checkLevelUp(profile).forEach(e => { if (!uiEvents.includes(e)) uiEvents.push(e); });
+      });
+    }
+
+    // ── Unique event completion tracking ──────────────────────────────────────
+    const newUniqueDone = Object.values(gameState.unique_scenario_flags || {}).filter(Boolean).length;
+    if (newUniqueDone > (profile.action_counters?.unique_completed || 0)) {
+      counters.unique_completed = newUniqueDone;
+      profile.action_counters = counters;
+      uiEvents.push('unique_event_completed');
+    }
+
     // ── Titles & skill unlocks ────────────────────────────────────────────────
     const newTitles    = checkTitles(profile, skills);
     const serverSkills = checkSkillUnlocks(profile, skills);
@@ -920,6 +1113,9 @@ app.post('/api/chat', async (req, res) => {
       ui_events: uiEvents,
       new_skills: parsed.new_skills || [],
       new_titles: newTitles,
+      completed_quests: completedQuests.map(q => ({ id: q.id, name: q.name, rewards: q.rewards })),
+      triggered_event: triggeredEvent ? { id: triggeredEvent.id, name: triggeredEvent.name } : null,
+      dungeon_room: dungCtx ? { id: dungCtx.room.id, name: dungCtx.room.name, type: dungCtx.room.type } : null,
       state: {
         profile: readData('player_profile.json'),
         inventory: readData('inventory.json'),
@@ -976,8 +1172,100 @@ app.post('/api/reset', (req, res) => {
       location: 'Crysta', sub_location: '', zone_type: 'safe_zone',
       quests_active: [], quests_completed: [], unique_scenario_flags: {},
       combat_active: false, current_enemy: null, skill_loadout: [], session_log: [],
+      current_dungeon_id: null, current_room_id: null, rooms_visited: [],
     });
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/quest/start — aggiunge una quest all'elenco attive
+app.post('/api/quest/start', (req, res) => {
+  const { quest_id } = req.body;
+  if (!quest_id) return res.status(400).json({ error: 'quest_id mancante' });
+  try {
+    let db;
+    try { db = readData('quests_database.json'); } catch { return res.status(404).json({ error: 'quests_database.json non trovato' }); }
+    const quest = (db.quests || []).find(q => q.id === quest_id);
+    if (!quest) return res.status(404).json({ error: `Quest "${quest_id}" non trovata` });
+
+    const gameState = readData('game_state.json');
+    if ((gameState.quests_active || []).includes(quest_id)) return res.status(409).json({ error: 'Quest già attiva' });
+    if ((gameState.quests_completed || []).includes(quest_id)) return res.status(409).json({ error: 'Quest già completata' });
+
+    gameState.quests_active = [...(gameState.quests_active || []), quest_id];
+    writeData('game_state.json', gameState);
+    res.json({ ok: true, quest: { id: quest.id, name: quest.name, description: quest.description, target_counter: quest.target_counter, target_value: quest.target_value } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/quests — lista quest disponibili, attive e completate
+app.get('/api/quests', (req, res) => {
+  try {
+    const db        = readData('quests_database.json');
+    const gameState = readData('game_state.json');
+    const profile   = readData('player_profile.json');
+    const counters  = profile.action_counters || {};
+
+    const quests = (db.quests || []).map(q => {
+      const raw     = counters[q.target_counter];
+      const current = Array.isArray(raw) ? raw.length : (raw || 0);
+      const status  = (gameState.quests_completed || []).includes(q.id) ? 'completed'
+                    : (gameState.quests_active    || []).includes(q.id) ? 'active'
+                    : 'available';
+      return { ...q, current_value: current, status };
+    });
+    res.json({ quests });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/dungeon/enter — entra in un dungeon e imposta la stanza iniziale
+app.post('/api/dungeon/enter', (req, res) => {
+  const { dungeon_id } = req.body;
+  if (!dungeon_id) return res.status(400).json({ error: 'dungeon_id mancante' });
+  try {
+    const data = readData('dungeons.json');
+    const dungeon = (data.dungeons || []).find(d => d.id === dungeon_id);
+    if (!dungeon) return res.status(404).json({ error: `Dungeon "${dungeon_id}" non trovato` });
+
+    const gameState = readData('game_state.json');
+    gameState.zone_type         = 'dungeon';
+    gameState.current_dungeon_id = dungeon_id;
+    gameState.current_room_id    = dungeon.rooms[0]?.id || null;
+    gameState.rooms_visited      = gameState.current_room_id ? [gameState.current_room_id] : [];
+    writeData('game_state.json', gameState);
+
+    const firstRoom = dungeon.rooms[0] || {};
+    res.json({ ok: true, dungeon_name: dungeon.name, room: { id: firstRoom.id, name: firstRoom.name, type: firstRoom.type, connections: firstRoom.connections } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/dungeon/map — mappa del dungeon corrente (stanze visitate)
+app.get('/api/dungeon/map', (req, res) => {
+  try {
+    const gameState = readData('game_state.json');
+    if (gameState.zone_type !== 'dungeon' || !gameState.current_dungeon_id) {
+      return res.json({ in_dungeon: false });
+    }
+    const data    = readData('dungeons.json');
+    const dungeon = (data.dungeons || []).find(d => d.id === gameState.current_dungeon_id);
+    if (!dungeon) return res.json({ in_dungeon: false });
+
+    const visited = new Set(gameState.rooms_visited || []);
+    const rooms   = dungeon.rooms.map(r => ({
+      id: r.id, name: r.name, type: r.type,
+      connections: r.connections,
+      visited: visited.has(r.id),
+      current: r.id === gameState.current_room_id,
+    }));
+    res.json({ in_dungeon: true, dungeon_name: dungeon.name, current_room_id: gameState.current_room_id, rooms });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

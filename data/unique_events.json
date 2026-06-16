@@ -4,6 +4,12 @@
       "id": "gladiatore_antico",
       "name": "L'Arena del Gladiatore Antico",
       "flag": "gladiatore_antico_completato",
+      "requirements": {
+        "locations": ["Crysta"],
+        "not_zone_type": "dungeon",
+        "stats": { "LUC": 13 },
+        "reputation": { "hunters_guild": 20 }
+      },
       "trigger_hint": "Zona Crysta, REP hunters_guild >= 20, LUC >= 13. Il vecchio si presenta nei vicoli del quartiere delle armi.",
       "description": "Un veterano dalla corporatura scolpita sfida il player a un duello rituale: nessuna skill, solo STR e AGI.",
       "enemies": [{ "name": "Gladiatore Antico", "tier": "A", "level": 15, "hp_max": 600 }],
@@ -19,6 +25,11 @@
       "id": "rovine_primordiali",
       "name": "Le Rovine Primordiali",
       "flag": "rovine_primordiali_completato",
+      "requirements": {
+        "location_includes": "Aokara",
+        "not_zone_type": "safe_zone",
+        "stats": { "LUC": 15 }
+      },
       "trigger_hint": "Prima visita Foresta di Aokara con LUC >= 15. Le rovine appaiono fuori dai sentieri principali.",
       "description": "Rovine di una civiltà scomparsa prima di Shangri-La. Un'entità senza nome offre conoscenza ancestrale in cambio di un combattimento senza riserve.",
       "enemies": [{ "name": "Entità Primordiale", "tier": "SS", "level": 25, "hp_max": 2000 }],
@@ -34,8 +45,13 @@
       "id": "mercante_fantasma",
       "name": "Il Mercante Senza Volto",
       "flag": "mercante_fantasma_visitato",
+      "requirements": {
+        "not_zone_type": "dungeon",
+        "stats": { "LUC": 16 },
+        "sub_location_includes": "Taverna"
+      },
       "trigger_hint": "LUC >= 16 durante un pernottamento in una taverna. Appare solo una volta per sessione.",
-      "description": "Una sagoma illuminata da una candela che non esiste bussica alla porta della stanza. Vende oggetti unici a prezzi impossibili — ma solo se il player ha Ragne sufficienti.",
+      "description": "Una sagoma illuminata da una candela che non esiste bussa alla porta della stanza. Vende oggetti unici a prezzi impossibili — ma solo se il player ha Ragne sufficienti.",
       "enemies": [],
       "rewards": {
         "special": "accesso_negozio_fantasma",
@@ -47,6 +63,12 @@
       "id": "cripta_del_re",
       "name": "La Cripta del Re Perduto",
       "flag": "cripta_re_completato",
+      "requirements": {
+        "locations": ["Crysta"],
+        "not_zone_type": "dungeon",
+        "stats": { "TEC": 14 },
+        "counters": { "enemies_defeated": 10 }
+      },
       "trigger_hint": "TEC >= 14 e almeno 10 nemici sconfitti, zona Crysta (sotterranei). Una botola nascosta sotto una lastra incrinata nel vicolo est.",
       "description": "Una cripta sigillata con sigilli arcaici. Il re che dorme li vuole rompere — da dentro.",
       "enemies": [{ "name": "Re Perduto", "tier": "SS", "level": 20, "hp_max": 1200, "mechanic": "A 50% HP entra in modalità fantasma: armi fisiche -50% danno" }],
@@ -61,6 +83,10 @@
       "id": "specchio_del_doppio",
       "name": "Lo Specchio del Doppio",
       "flag": "specchio_doppio_completato",
+      "requirements": {
+        "level": 10,
+        "zone_type": "dungeon"
+      },
       "trigger_hint": "Livello >= 10, zona dungeon qualsiasi. Lo specchio compare in una stanza laterale senza porte evidenti.",
       "description": "Uno specchio con cornice d'argento ossidato. La tua riflessione si muove da sola — e attacca.",
       "enemies": [{ "name": "Il Doppio", "tier": "S", "level_offset": 5, "hp_formula": "player_hp_max × 1.2", "mechanic": "Usa le stesse skill del player. Immunità a danno dello stesso tipo che usa più spesso." }],
@@ -75,6 +101,10 @@
       "id": "il_collezionista",
       "name": "Il Collezionista di Rare",
       "flag": "collezionista_visitato",
+      "requirements": {
+        "not_zone_type": "dungeon",
+        "counters": { "enemies_analyzed": 5 }
+      },
       "trigger_hint": "Bestiary con almeno 5 nemici analizzati. Appare nei mercati o in zone di sosta post-combattimento.",
       "description": "Un eccentrico con una borsa enorme cerca campioni biologici di mostri. La borsa sembra contenere molto più di quanto dovrebbe.",
       "enemies": [],
@@ -88,6 +118,10 @@
       "id": "trono_dei_cacciatori",
       "name": "Il Torneo dei Cacciatori",
       "flag": "trono_cacciatori_completato",
+      "requirements": {
+        "not_zone_type": "dungeon",
+        "reputation": { "hunters_guild": 50 }
+      },
       "trigger_hint": "REP hunters_guild >= 50. Un sigillo rosso appare nella borsa del player senza preavviso.",
       "description": "La Gilda convoca i migliori per un torneo segreto. Il vincitore ottiene un titolo e l'accesso al piano superiore della Gilda.",
       "enemies": [{ "name": "Campione della Gilda", "tier": "S", "level": 20, "hp_max": 900, "mechanic": "Cambia pattern di attacco ogni 3 turni" }],
@@ -102,6 +136,11 @@
       "id": "voce_del_caos",
       "name": "La Voce del Caos",
       "flag": "voce_caos_completato",
+      "requirements": {
+        "not_zone_type": "safe_zone",
+        "counters": { "near_death_survives": 3 },
+        "reputation_positive": { "underground": 1 }
+      },
       "trigger_hint": "counter near_death_survives >= 3 e REP underground > 0. Si manifesta in zone oscure dopo un combattimento intenso.",
       "description": "Una voce inizia come ronzio e diventa un nome. Offre potere immenso — a un prezzo reputazionale.",
       "enemies": [{ "name": "Entità del Caos", "tier": "SSS", "level": 30, "hp_max": 5000, "mechanic": "Resistenza e debolezza cambiano ogni turno. +5% HP se non attaccata nel turno." }],

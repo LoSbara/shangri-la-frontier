@@ -1,0 +1,122 @@
+{
+  "quests": [
+    {
+      "id": "prime_uccisioni",
+      "name": "Prime Uccisioni",
+      "description": "Sconfiggi i tuoi primi 5 nemici a Crysta.",
+      "target_counter": "enemies_defeated",
+      "target_value": 5,
+      "rewards": { "exp": 150, "money": 100, "items": [], "stat_points": 0 }
+    },
+    {
+      "id": "cacciatore_principiante",
+      "name": "Cacciatore Principiante",
+      "description": "Sconfiggi 20 nemici. La gilda ti riconosce come cacciatore.",
+      "target_counter": "enemies_defeated",
+      "target_value": 20,
+      "rewards": {
+        "exp": 500,
+        "money": 300,
+        "items": [
+          {
+            "id": "medaglia_caccia",
+            "name": "Medaglia della Caccia",
+            "type": "accessory",
+            "slot": "accessory_1",
+            "stat_bonus": { "LUC": 1 },
+            "rarity": "non_comune",
+            "price": 120,
+            "description": "Una medaglia assegnata ai cacciatori emergenti dalla Gilda."
+          }
+        ]
+      }
+    },
+    {
+      "id": "caccia_elite",
+      "name": "Caccia all'Elite",
+      "description": "Sconfiggi 3 nemici di rango B o superiore.",
+      "target_counter": "elite_kills",
+      "target_value": 3,
+      "rewards": {
+        "exp": 800,
+        "money": 500,
+        "items": [
+          {
+            "id": "emblema_elite",
+            "name": "Emblema del Cacciatore Elite",
+            "type": "accessory",
+            "slot": "accessory_2",
+            "stat_bonus": { "STR": 2, "DEX": 2 },
+            "rarity": "raro",
+            "price": 500,
+            "description": "Un emblema che testimonia la caduta di nemici temibili."
+          }
+        ]
+      }
+    },
+    {
+      "id": "occhio_acuto",
+      "name": "Occhio Acuto",
+      "description": "Usa l'Analisi su 10 nemici diversi per rivelare le loro statistiche.",
+      "target_counter": "enemies_analyzed",
+      "target_value": 10,
+      "rewards": { "exp": 400, "money": 200, "stat_points": 2, "items": [] }
+    },
+    {
+      "id": "schivaballe",
+      "name": "Come l'Acqua",
+      "description": "Schiva 30 attacchi nemici in combattimento.",
+      "target_counter": "dodges",
+      "target_value": 30,
+      "rewards": { "exp": 350, "money": 150, "items": [] }
+    },
+    {
+      "id": "colpi_precisi",
+      "name": "Lama Affilata",
+      "description": "Infliggi 15 colpi critici.",
+      "target_counter": "criticals",
+      "target_value": 15,
+      "rewards": { "exp": 350, "money": 150, "items": [] }
+    },
+    {
+      "id": "esploratore",
+      "name": "Esploratore",
+      "description": "Visita 5 zone diverse del mondo.",
+      "target_counter": "zones_visited",
+      "target_value": 5,
+      "rewards": { "exp": 250, "money": 100, "items": [] }
+    },
+    {
+      "id": "sopravvissuto",
+      "name": "Sopravvissuto",
+      "description": "Sopravvivi 3 volte a situazioni di pericolo di vita (HP < 10%).",
+      "target_counter": "near_death_survives",
+      "target_value": 3,
+      "rewards": {
+        "exp": 600,
+        "money": 0,
+        "stat_points": 2,
+        "items": [
+          {
+            "id": "talismano_tenacia",
+            "name": "Talismano della Tenacia",
+            "type": "accessory",
+            "slot": "accessory_1",
+            "stat_bonus": { "VIT": 3 },
+            "rarity": "raro",
+            "price": 400,
+            "description": "Chi ha guardato la morte in faccia e ha vinto merita questo."
+          }
+        ]
+      }
+    },
+    {
+      "id": "esperto_unici",
+      "name": "Cacciatore di Leggende",
+      "description": "Completa 3 scenari unici.",
+      "target_counter": "unique_completed",
+      "target_value": 3,
+      "rewards": { "exp": 1500, "money": 1000, "stat_points": 3, "items": [] }
+    }
+  ]
+}
