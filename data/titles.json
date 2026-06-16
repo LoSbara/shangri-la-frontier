@@ -1,0 +1,109 @@
+{
+  "titles": [
+    {
+      "id": "first_blood",
+      "name": "Prima Vittoria",
+      "description": "Sconfiggi il tuo primo nemico.",
+      "condition": { "enemies_defeated": 1 },
+      "rewards": { "stats": { "LUC": 1 } }
+    },
+    {
+      "id": "hunter",
+      "name": "Cacciatore",
+      "description": "Sconfiggi 10 nemici.",
+      "condition": { "enemies_defeated": 10 },
+      "rewards": { "stats": { "STR": 2 } }
+    },
+    {
+      "id": "relentless_hunter",
+      "name": "Cacciatore Spietato",
+      "description": "Sconfiggi 50 nemici.",
+      "condition": { "enemies_defeated": 50 },
+      "rewards": { "stats": { "STR": 3, "AGI": 1 } }
+    },
+    {
+      "id": "untouchable",
+      "name": "Intoccabile",
+      "description": "Schiva con successo 5 attacchi.",
+      "condition": { "dodges": 5 },
+      "rewards": { "stats": { "AGI": 2 } }
+    },
+    {
+      "id": "ghost",
+      "name": "Fantasma",
+      "description": "Schiva con successo 20 attacchi.",
+      "condition": { "dodges": 20 },
+      "rewards": { "stats": { "AGI": 3, "DEX": 1 } }
+    },
+    {
+      "id": "hawk_eye",
+      "name": "Occhio di Falco",
+      "description": "Infliggi 10 colpi critici.",
+      "condition": { "criticals": 10 },
+      "rewards": { "stats": { "DEX": 2, "LUC": 1 } }
+    },
+    {
+      "id": "analyst",
+      "name": "Analista",
+      "description": "Analizza 5 nemici diversi.",
+      "condition": { "enemies_analyzed": 5 },
+      "rewards": { "stats": { "TEC": 2 } }
+    },
+    {
+      "id": "explorer",
+      "name": "Esploratore",
+      "description": "Visita 5 zone diverse.",
+      "condition": { "zones_visited": 5 },
+      "rewards": { "stats": { "STR": 1, "DEX": 1, "AGI": 1, "TEC": 1, "VIT": 1, "LUC": 1 } }
+    },
+    {
+      "id": "wealthy",
+      "name": "Ricco",
+      "description": "Accumula 5000 R.",
+      "condition": { "max_money": 5000 },
+      "rewards": { "stats": { "LUC": 2 } }
+    },
+    {
+      "id": "elite_slayer",
+      "name": "Cacciatore di Elite",
+      "description": "Sconfiggi un nemico di Tier B o superiore.",
+      "condition": { "elite_kills": 1 },
+      "rewards": { "stats": { "STR": 2, "AGI": 2 } }
+    },
+    {
+      "id": "combo_artist",
+      "name": "Combo Artist",
+      "description": "Usa 3 skill diverse in un singolo combattimento.",
+      "condition": { "max_skills_in_combat": 3 },
+      "rewards": { "stats": { "TEC": 1, "DEX": 1 } }
+    },
+    {
+      "id": "iron_will",
+      "name": "Volontà di Ferro",
+      "description": "Sopravvivi con HP sotto il 10% per 3 volte.",
+      "condition": { "near_death_survives": 3 },
+      "rewards": { "stats": { "VIT": 3, "STR": 1 } }
+    },
+    {
+      "id": "veteran",
+      "name": "Veterano",
+      "description": "Raggiungi il livello 10.",
+      "condition": { "level": 10 },
+      "rewards": { "stats": { "STR": 2, "DEX": 2, "AGI": 2, "TEC": 2, "VIT": 2, "LUC": 2 } }
+    },
+    {
+      "id": "skill_master",
+      "name": "Maestro delle Skill",
+      "description": "Sblocca 10 skill.",
+      "condition": { "skills_unlocked": 10 },
+      "rewards": { "stats": { "TEC": 2 }, "skill_slots": 1 }
+    },
+    {
+      "id": "unique_slayer",
+      "name": "Cacciatore di Unici",
+      "description": "Completa il tuo primo Unique Scenario.",
+      "condition": { "unique_completed": 1 },
+      "rewards": { "stats": { "STR": 3, "AGI": 3, "LUC": 3 }, "skill": "vorpal_soul" }
+    }
+  ]
+}

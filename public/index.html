@@ -13,9 +13,12 @@
     <div class="top-actions">
       <button id="map-btn"      class="top-btn" title="Mappa del mondo">🗺</button>
       <button id="bestiary-btn" class="top-btn" title="Bestiario">📖</button>
+      <button id="npc-btn"      class="top-btn" title="NPC incontrati">👤</button>
       <button id="shop-btn"     class="top-btn" title="Negozio" disabled>🛒</button>
       <button id="slots-btn"    class="top-btn" title="Salvataggi">💾</button>
       <button id="export-btn"   class="top-btn" title="Esporta sessione come .md">⬇</button>
+      <button id="gm-mode-btn"  class="top-btn" title="Attiva GM umano">🎭</button>
+      <button id="sound-btn"    class="top-btn active" title="Suoni attivi">🔊</button>
     </div>
     <div class="player-header">
       <span id="player-job" class="job-badge">?</span>
@@ -71,9 +74,24 @@
         </div>
       </div>
 
+      <div id="status-effects-section" class="panel-section" style="display:none">
+        <div class="section-title">STATI ATTIVI</div>
+        <div id="status-effects-list" class="status-effects-list"></div>
+      </div>
+
       <div class="panel-section">
         <div class="section-title">POSIZIONE</div>
         <div id="location-text" class="location-text">—</div>
+      </div>
+
+      <div id="reputation-section" class="panel-section" style="display:none">
+        <div class="section-title">REPUTAZIONE</div>
+        <div id="reputation-list" class="reputation-list"></div>
+      </div>
+
+      <div class="panel-section" id="titles-section" style="display:none">
+        <div class="section-title">TITOLI</div>
+        <div id="titles-list" class="titles-list"></div>
       </div>
 
       <div class="panel-section" id="quest-section" style="display:none">
@@ -86,6 +104,17 @@
     <!-- ── Chat centrale ── -->
     <main class="chat-panel">
       <div class="chat-messages" id="chat-messages"></div>
+
+      <!-- Pannello risposta GM umano (appare solo in modalità GM) -->
+      <div id="gm-respond-panel" class="gm-respond-panel hidden">
+        <div class="gm-respond-label">✍ Risposta GM — scrivi la narrazione</div>
+        <textarea id="gm-narrative-input" class="gm-narrative-input"
+          placeholder="Descrivi l'esito dell'azione del giocatore…" rows="4"></textarea>
+        <div class="gm-respond-actions">
+          <button id="gm-respond-btn" class="btn-primary">Invia come GM</button>
+        </div>
+      </div>
+
       <div class="chat-footer">
         <textarea id="chat-input" class="chat-input"
           placeholder="Scrivi un'azione o una risposta al GM… (Invio per inviare, Shift+Invio per andare a capo)"
@@ -157,10 +186,20 @@
   <!-- ── Modal: Gestione Skill Loadout ── -->
   <div id="modal-skills" class="modal-overlay hidden">
     <div class="modal-box modal-box-wide">
-      <div class="modal-title">GESTISCI SKILL LOADOUT</div>
-      <div class="modal-sub">Slot selezionati: <span id="sl-used" class="accent">0</span> / <span id="sl-max">4</span></div>
+      <div class="modal-header-row">
+        <div>
+          <div class="modal-title">SKILL</div>
+          <div class="modal-sub">Slot: <span id="sl-used" class="accent">0</span> / <span id="sl-max">4</span></div>
+        </div>
+        <button class="modal-close" onclick="closeModal('modal-skills')">✕</button>
+      </div>
+      <div class="skill-modal-tabs">
+        <button id="sk-tab-loadout" class="skill-modal-tab active" onclick="switchSkillTab('loadout')">Loadout</button>
+        <button id="sk-tab-tree"    class="skill-modal-tab"        onclick="switchSkillTab('tree')">Albero Skill</button>
+      </div>
       <div id="sl-list" class="sl-list"></div>
-      <div class="modal-actions">
+      <div id="skill-tree-panel" class="skill-tree-panel hidden"></div>
+      <div id="modal-skills-actions" class="modal-actions">
         <button id="sl-cancel" class="btn-secondary">Annulla</button>
         <button id="sl-confirm" class="btn-primary">Salva Loadout</button>
       </div>
@@ -172,7 +211,10 @@
     <div class="modal-box modal-box-map">
       <div class="modal-header-row">
         <div class="modal-title">MAPPA DEL MONDO</div>
-        <button class="modal-close" onclick="closeModal('modal-map')">✕</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn-tiny" onclick="openMapConfigurator()">✎ Modifica</button>
+          <button class="modal-close" onclick="closeModal('modal-map')">✕</button>
+        </div>
       </div>
       <div class="map-legend">
         <span class="legend-dot safe"></span>Città
@@ -219,6 +261,30 @@
     </div>
   </div>
 
+  <!-- ── Modal: Configuratore Mappa ── -->
+  <div id="modal-map-config" class="modal-overlay hidden">
+    <div class="modal-box modal-box-config">
+      <div class="modal-header-row">
+        <div class="modal-title">CONFIGURA MAPPA</div>
+        <button class="modal-close" onclick="closeModal('modal-map-config')">✕</button>
+      </div>
+      <div class="config-layout">
+        <div class="config-left">
+          <div id="config-zone-list" class="config-zone-list"></div>
+        </div>
+        <div class="config-right">
+          <div id="config-zone-form" class="config-zone-form">
+            <div class="config-placeholder">Seleziona una zona da modificare o aggiungi una nuova.</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeModal('modal-map-config')">Annulla</button>
+        <button class="btn-primary" onclick="saveMapConfig()">Salva Mappa</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Modal: Salvataggi ── -->
   <div id="modal-slots" class="modal-overlay hidden">
     <div class="modal-box modal-box-wide">
@@ -227,6 +293,62 @@
         <button class="modal-close" onclick="closeModal('modal-slots')">✕</button>
       </div>
       <div id="slots-list" class="slots-list"></div>
+    </div>
+  </div>
+
+  <!-- ── Modal: NPC ── -->
+  <div id="modal-npc" class="modal-overlay hidden">
+    <div class="modal-box modal-box-wide">
+      <div class="modal-header-row">
+        <div class="modal-title">NPC INCONTRATI</div>
+        <button class="modal-close" onclick="closeModal('modal-npc')">✕</button>
+      </div>
+      <div id="npc-list" class="npc-list"></div>
+    </div>
+  </div>
+
+  <!-- Title unlocked toast -->
+  <div id="title-toast" class="title-toast hidden">
+    <div class="title-toast-label">TITOLO OTTENUTO</div>
+    <div id="title-toast-name" class="title-toast-name">—</div>
+    <div id="title-toast-reward" class="title-toast-reward"></div>
+  </div>
+
+  <!-- Skill unlocked toast -->
+  <div id="skill-toast" class="skill-toast hidden">
+    <div class="skill-toast-label">SKILL SBLOCCATA</div>
+    <div id="skill-toast-name" class="skill-toast-name">—</div>
+  </div>
+
+  <!-- ── Modal: Scelta Specializzazione T2 ── -->
+  <div id="modal-subclass" class="modal-overlay hidden">
+    <div class="modal-box modal-box-class">
+      <div class="modal-header-row">
+        <div>
+          <div class="modal-title">SPECIALIZZAZIONE — LV.10</div>
+          <div class="modal-sub">Scegli il tuo percorso. Questa scelta è permanente e irreversibile.</div>
+        </div>
+      </div>
+      <div id="subclass-options" class="class-options-grid"></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeModal('modal-subclass')">Scegli più tardi</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Scelta Classe Avanzata T3 ── -->
+  <div id="modal-advanced-class" class="modal-overlay hidden">
+    <div class="modal-box modal-box-class">
+      <div class="modal-header-row">
+        <div>
+          <div class="modal-title">CLASSE AVANZATA — LV.20</div>
+          <div class="modal-sub">Il tuo percorso raggiunge l'apice. La scelta è irreversibile.</div>
+        </div>
+      </div>
+      <div id="advanced-class-options" class="class-options-grid"></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeModal('modal-advanced-class')">Scegli più tardi</button>
+      </div>
     </div>
   </div>
 

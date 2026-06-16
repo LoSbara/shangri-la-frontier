@@ -1,0 +1,104 @@
+{
+  "items": [
+    {
+      "id": "corona_del_re_perduto",
+      "name": "Corona del Re Perduto",
+      "type": "accessory",
+      "slot": "head",
+      "rarity": "leggendario",
+      "stat_bonus": { "STR": 3, "VIT": 5, "LUC": 3 },
+      "description": "La corona di un re dimenticato dai log di sistema. Chi la indossa porta il peso di un regno.",
+      "source": "cripta_del_re"
+    },
+    {
+      "id": "insegna_del_campione",
+      "name": "Insegna del Campione",
+      "type": "accessory",
+      "slot": "accessory_1",
+      "rarity": "leggendario",
+      "stat_bonus": { "STR": 4, "AGI": 4, "DEX": 2 },
+      "description": "Il distintivo del Campione della Gilda. Apre porte che non compaiono sulla mappa.",
+      "source": "trono_dei_cacciatori"
+    },
+    {
+      "id": "frammento_specchio",
+      "name": "Frammento dello Specchio del Doppio",
+      "type": "accessory",
+      "slot": "accessory_2",
+      "rarity": "epico",
+      "stat_bonus": { "TEC": 6, "LUC": 4 },
+      "description": "Riflette non solo luce, ma possibilità. A volte mostra skill che non hai ancora sbloccato.",
+      "source": "specchio_del_doppio"
+    },
+    {
+      "id": "mantello_ombra_assoluta",
+      "name": "Mantello dell'Ombra Assoluta",
+      "type": "armor",
+      "slot": "chest",
+      "rarity": "leggendario",
+      "stat_bonus": { "AGI": 6, "DEX": 4, "VIT": -2 },
+      "description": "Assorbe la luce circostante. Nelle zone di combattimento, la prima azione è sempre garantita.",
+      "source": "mercante_fantasma"
+    },
+    {
+      "id": "amuleto_rinascita",
+      "name": "Amuleto della Rinascita",
+      "type": "accessory",
+      "slot": "accessory_2",
+      "rarity": "leggendario",
+      "stat_bonus": { "VIT": 5, "HP_bonus": 50 },
+      "description": "Una volta per combattimento, assorbe automaticamente un colpo letale (narrativo — HP si ferma a 1).",
+      "source": "mercante_fantasma"
+    },
+    {
+      "id": "cristallo_arcano_potenziato",
+      "name": "Cristallo Arcano Potenziato",
+      "type": "accessory",
+      "slot": "accessory_1",
+      "rarity": "epico",
+      "stat_bonus": { "TEC": 8, "MP_bonus": 30 },
+      "description": "Pulsa con energia densa. Le skill MP-intensive costano il 10% in meno.",
+      "source": "guardiano_torre_cristallo"
+    },
+    {
+      "id": "stivali_vento_eterno",
+      "name": "Stivali del Vento Eterno",
+      "type": "armor",
+      "slot": "boots",
+      "rarity": "leggendario",
+      "stat_bonus": { "AGI": 8, "DEX": 3 },
+      "description": "Non toccano mai il suolo. La % schivata di base è aumentata del 5%.",
+      "source": "drop_raro_scout_S"
+    },
+    {
+      "id": "guanti_del_colosseo",
+      "name": "Guanti del Colosseo",
+      "type": "armor",
+      "slot": "hands",
+      "rarity": "epico",
+      "stat_bonus": { "STR": 7, "VIT": 3 },
+      "description": "Indossati da cento gladiatori. Ogni vittoria in un duello 1v1 accumula una carica (narrativa).",
+      "source": "gladiatore_antico"
+    },
+    {
+      "id": "tomo_del_fondatore",
+      "name": "Tomo del Fondatore",
+      "type": "accessory",
+      "slot": "offhand",
+      "rarity": "leggendario",
+      "stat_bonus": { "TEC": 5, "LUC": 5, "MP_bonus": 20 },
+      "description": "Il fondatore di Shangri-La lo scrisse per chi avrebbe un giorno finito il gioco. Contiene skill dimenticate.",
+      "source": "ombra_del_fondatore"
+    },
+    {
+      "id": "lama_ancestrale",
+      "name": "Lama Ancestrale",
+      "type": "weapon",
+      "slot": "weapon",
+      "rarity": "leggendario",
+      "stat_bonus": { "STR": 6, "DEX": 6, "TEC": 4 },
+      "description": "Forgiata prima del sistema dei Tier. Non ha scuola — si adatta a chi la impugna.",
+      "source": "drop_boss_SSS"
+    }
+  ]
+}

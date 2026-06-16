@@ -62,11 +62,13 @@ Se `player_profile.json` ha `name: ""`, il gioco non è ancora stato inizializza
 Procedi così:
 1. Presenta l'ambientazione: la città di partenza *Crysta*.
 2. Chiedi al giocatore il nome del personaggio.
-3. Chiedi la classe iniziale: **Mercenario** (STR/VIT), **Scout** (DEX/AGI), **Mago** (TEC/LUC), o **Custom** (distribuzione libera).
+3. Chiedi la classe iniziale: **Mercenario** (STR/VIT), **Scout** (DEX/AGI), **Mago** (TEC/LUC), **Sacerdote** (VIT/LUC), **Ingegnere** (TEC/STR), o **Custom** (distribuzione libera).
 4. Assegna 15 punti statistica base + bonus classe:
    - Mercenario: +5 STR, +3 VIT
    - Scout: +5 DEX, +3 AGI
    - Mago: +5 TEC, +3 LUC
+   - Sacerdote: +5 VIT, +3 LUC
+   - Ingegnere: +5 TEC, +3 STR
 5. Aggiorna `player_profile.json` e `game_state.json` con i dati scelti.
 6. Avvia lo scenario iniziale.
 

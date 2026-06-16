@@ -2,11 +2,13 @@
 const API = 'http://localhost:3000/api';
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let busy = false;
-let currentState   = null;
-let worldMapZones  = [];
-let bestiaryFilter = 'all';
-let shopTab        = 'buy';
+let busy            = false;
+let waitingForGM    = false;
+let currentState    = null;
+let worldMapZones   = [];
+let bestiaryFilter  = 'all';
+let shopTab         = 'buy';
+let prevCombatState = false;
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
 const chatMessages    = document.getElementById('chat-messages');
@@ -21,6 +23,92 @@ const bestiaryBtn     = document.getElementById('bestiary-btn');
 const shopBtn         = document.getElementById('shop-btn');
 
 marked.setOptions({ breaks: true });
+
+// ── Class Data ────────────────────────────────────────────────────────────────
+const SUBCLASS_DATA = {
+  berserker:       { name: 'Berserker',          color: '#ef4444', flavor: 'Potenza bruta e furia scatenata. Più danni, più rischi.',                           skills: ['Furia Berserker','Prezzo di Sangue','Rampaggio','Ultima Resistenza (P)','Urlo di Guerra'] },
+  guardian:        { name: 'Guardiano',           color: '#3b82f6', flavor: 'Difesa impenetrabile e contrattacchi devastanti.',                                  skills: ['Postura di Ferro','Riflesso del Danno','Bastione','Protezione Assoluta (P)','Postura Contrattacco'] },
+  blade_master:    { name: 'Lama Assoluta',       color: '#a78bfa', flavor: 'Tecnica pura. Ogni colpo è calcolato al millimetro.',                               skills: ['Colpo Focalizzato','Kata della Spada','Risonanza della Lama','Filo Perfetto (P)','Colpo Decisivo'] },
+  acrobat:         { name: 'Acrobata',            color: '#10b981', flavor: 'Velocità e agilità aerea. Schiva, poi colpisci.',                                   skills: ['Cascata','Riposizionamento','Danza del Vento','Maestria Aerea (P)','Volo Libero'] },
+  shadow:          { name: 'Ombra',               color: '#6366f1', flavor: 'Invisibilità e colpi letali. Nessuno sa quando colpirà.',                            skills: ['Nascondersi','Colpo Letale','Passo d\'Ombra','Istinto del Predatore (P)','Uccisione Evasiva'] },
+  duelist:         { name: 'Duelista',            color: '#f59e0b', flavor: 'Maestro del duello 1v1. Ogni parata è un\'opportunità.',                            skills: ['Parata-Riposte','Pressione della Lama (P)','Postura Perfetta','Catena di Riposte','Disarmo'] },
+  supreme_analyst: { name: 'Analista Supremo',    color: '#06b6d4', flavor: 'Conosce il nemico meglio del nemico stesso. Informazione = potere.',                skills: ['Analisi Completa','Copia Skill','Contro-Build','Riconoscimento Pattern (P)','Sfruttamento (P)'] },
+  manipulator:     { name: 'Manipolatore',        color: '#ec4899', flavor: 'Status, veleni, maledizioni. Il nemico si autodistrugge.',                          skills: ['Trama Velenosa','Confusione','Maledizione del Campo','Amplificazione Debuff (P)','Catena di Status'] },
+  artificer:       { name: 'Artefice',            color: '#f97316', flavor: 'Costrutti, trappole e barriere. Combatte con la tecnologia.',                       skills: ['Disponi Costrutto','Posa Trappola','Campo Barriera','Ingegnere (P)','Overclocking'] },
+  sovereign:       { name: 'Sovereigno',          color: '#eab308', flavor: 'Nessun limite di classe. Adattabilità totale e potere bilanciato.',                 skills: ['Aura del Sovereigno','Combattimento Adattivo','Colpo Bilanciato','Versatilità (P)','Volontà del Sovereigno'] },
+  // Sacerdote
+  guaritore:       { name: 'Guaritore',           color: '#86efac', flavor: 'Cura, rigenerazione, barriere. La vita è la tua arma.',                            skills: ['Cura Maggiore','Rigenerazione','Purificazione','Barriera Sacra','Empatia Divina (P)'] },
+  esorcista:       { name: 'Esorcista',           color: '#fde68a', flavor: 'Luce sacra, catene divine, esorcismi. La morte degli spiriti.',                    skills: ['Lampo Sacro','Catene della Luce','Esorcismo','Aura Purificante (P)','Sigillo d\'Esorcismo'] },
+  oracolo:         { name: 'Oracolo',             color: '#c4b5fd', flavor: 'Profezie, fortuna e sfortuna. Il destino è nelle tue mani.',                       skills: ['Profezia','Fortuna Condivisa','Visione del Futuro','Sfortuna del Nemico','Destino Segnato (P)'] },
+  // Ingegnere
+  meccanico:       { name: 'Meccanico',           color: '#94a3b8', flavor: 'Torrette, scudi meccanici, potenziamenti. La macchina combatte per te.',           skills: ['Disponi Torretta','Scudo Meccanico','Motore di Combattimento (P)','Riparazione di Campo','Potenziamento Meccanico'] },
+  alchimista:      { name: 'Alchimista',          color: '#6ee7b7', flavor: 'Acidi, elisir, trasmutazioni. La chimica è devastante.',                           skills: ['Bomba Acida','Elisir di Combattimento','Trasmutazione','Nebbia Alchemica','Catalisi (P)'] },
+  inventore:       { name: 'Inventore',           color: '#fb923c', flavor: 'Gadget, razzi, tute rinforzate. La creatività supera la forza bruta.',             skills: ['Gadget Esplosivo','Razzo da Battaglia','Tuta Rinforzata (P)','Auto-Riparazione','Iperboost'] },
+};
+
+const ADVANCED_CLASS_DATA = {
+  war_god:             { name: 'Dio della Guerra',        color: '#ef4444', subclass: 'berserker',       flavor: 'La furia divina incarnata. Distrugge tutto.',                            skills: ['Stato del Dio della Guerra','Rampaggio Divino','Sfida alla Morte (P)','Annientamento'] },
+  blood_reaper:        { name: 'Mietitore di Sangue',     color: '#dc2626', subclass: 'berserker',       flavor: 'Si nutre del sangue nemico. Più danni subisce, più è pericoloso.',       skills: ['Banchetto di Sangue (P)','Emorragia','Furia Sanguinaria (P)','Marea Cremisi'] },
+  living_fortress:     { name: 'Fortezza Vivente',        color: '#3b82f6', subclass: 'guardian',        flavor: 'Immune, riflette, respira. Impossibile da abbattere.',                   skills: ['Muro Assoluto','Spine','Postura del Titano','Immortalità (P)'] },
+  iron_champion:       { name: 'Campione di Ferro',       color: '#1d4ed8', subclass: 'guardian',        flavor: 'Ogni battaglia lo rende più forte. Veterano eterno.',                    skills: ['Contro di Ferro','Carica Fortezza','Indissolubile','Veterano di Guerra (P)'] },
+  sword_saint:         { name: 'Santo della Spada',       color: '#a78bfa', subclass: 'blade_master',    flavor: 'La perfezione con la lama. Un colpo può finire tutto.',                  skills: ['Spirito della Spada','Taglio del Vuoto','Maestria della Spada (P)','Taglio Finale'] },
+  dual_blade:          { name: 'Maestro Doppia Lama',     color: '#7c3aed', subclass: 'blade_master',    flavor: 'Due lame, infiniti colpi. La danza della morte.',                        skills: ['Estrazione Doppia','Lame Uragano','Flusso Doppio (P)','Danza Finale'] },
+  sky_dancer:          { name: 'Danzatore del Cielo',     color: '#10b981', subclass: 'acrobat',         flavor: 'Domina i cieli. Nessuno riesce a colpirlo dall\'alto.',                  skills: ['Cascata Infinita','Dominio del Cielo','Finalizzatore Aereo','Corpo del Vento (P)'] },
+  tempest:             { name: 'Tempesta',                color: '#059669', subclass: 'acrobat',         flavor: 'Si muove come una tempesta. AoE devastante e inarrestabile.',            skills: ['Turbine','Sentiero della Tempesta','Colpo Ciclone','Uccisione in Movimento (P)'] },
+  absolute_phantom:    { name: 'Fantasma Assoluto',       color: '#6366f1', subclass: 'shadow',          flavor: 'Invisibile finché non uccide. La morte non si vede arrivare.',           skills: ['Stealth Perfetto','Uccisione Sparizione','Camminata Fantasma (P)','Sentenza di Morte'] },
+  illusory_blade:      { name: 'Lama Illusoria',          color: '#4338ca', subclass: 'shadow',          flavor: 'Clone, illusioni, caos. Il nemico non sa dove colpire.',                 skills: ['Clone d\'Ombra','Colpo Miraggio','Esercito Fantasma','Eco (P)'] },
+  master_fencer:       { name: 'Schermidore Maestro',     color: '#f59e0b', subclass: 'duelist',         flavor: 'Ogni attacco nemico è un\'opportunità. Contatore supremo.',              skills: ['Parata Impeccabile','Tempesta di Riposte','Valzer della Lama','Re del Contro (P)'] },
+  eternal_champion:    { name: 'Campione Eterno',         color: '#d97706', subclass: 'duelist',         flavor: 'Ogni vittoria lo rende più forte. Non può essere fermato.',              skills: ['Serie di Vittorie (P)','Colpo del Campione','Volontà Eterna (P)','Duello Leggendario'] },
+  override_master:     { name: 'Override Master',         color: '#06b6d4', subclass: 'supreme_analyst', flavor: 'Ruba skill, copia nemici, prende il controllo. Impossibile da prevedere.',skills: ['Furto di Skill','Combattimento Specchio','Adattamento (P)','Override Totale'] },
+  precision_tactician: { name: 'Tattico di Precisione',  color: '#0891b2', subclass: 'supreme_analyst', flavor: 'Calcola l\'attacco perfetto. Ogni colpo è matematicamente ottimale.',    skills: ['Formula di Combattimento','Punto di Pressione','Genio Tattico (P)','Fine Inevitabile'] },
+  curse_weaver:        { name: 'Tessitore di Maledizioni',color: '#ec4899', subclass: 'manipulator',     flavor: 'Maledizioni che si amplificano. La morte lenta è la sua arte.',           skills: ['Trama Maledetta','Amplifica Maledizione','Fatalità (P)','Maledizione Finale'] },
+  dominator:           { name: 'Dominatore',              color: '#be185d', subclass: 'manipulator',     flavor: 'Controlla la mente nemica. I nemici combattono per lui.',                skills: ['Maestro dei Burattini','Rottura Mentale','Dominazione (P)','Controllo Assoluto'] },
+  construct_master:    { name: 'Maestro dei Costrutti',   color: '#f97316', subclass: 'artificer',       flavor: 'Esercito di costrutti. Non combatte da solo.',                           skills: ['Costrutto Maestro','Costrutti Doppi','Link Costrutto (P)','Costrutto Omega'] },
+  trap_specialist:     { name: 'Specialista Trappole',    color: '#ea580c', subclass: 'artificer',       flavor: 'L\'intera mappa è la sua arma. I nemici non vanno da nessuna parte.',   skills: ['Rete di Trappole','Trappola Esplosiva','Maestro delle Trappole (P)','Labirinto di Trappole'] },
+  world_ruler:         { name: 'Signore del Mondo',       color: '#eab308', subclass: 'sovereign',       flavor: 'Potere totale. +20% a tutto e comandi assoluti.',                        skills: ['Autorità del Mondo','Colpo Omni','Crescita Sovereigna (P)','Ordine del Mondo'] },
+  living_legend:       { name: 'Leggenda Vivente',        color: '#ca8a04', subclass: 'sovereign',       flavor: 'I titoli diventano potere. Ogni impresa aumenta il danno.',              skills: ['Aura della Leggenda','Racconto Eroico (P)','Leggendario (P)','Fine dell\'Era'] },
+  // Sacerdote T3
+  angelo_custode:      { name: 'Angelo Custode',          color: '#bbf7d0', subclass: 'guaritore',       flavor: 'Resurrezione, invulnerabilità, cura totale. La morte ti evita.',          skills: ['Resurrezione (P)','Cura Celestiale','Scudo Angelico (P)','Grazia Divina'] },
+  fonte_vita:          { name: 'Fonte di Vita',           color: '#86efac', subclass: 'guaritore',       flavor: 'Cura continua, overflow, vita senza limiti.',                             skills: ['Torrente di Vita','Overflow di Cura','Benedizione di Massa (P)','Vita Eterna'] },
+  cavaliere_luce:      { name: 'Cavaliere della Luce',    color: '#fef08a', subclass: 'esorcista',       flavor: 'Sacro e fisico fusi. Un guerriero divino.',                               skills: ['Lancia di Luce','Armatura di Luce (P)','Crociata','Giudizio Finale'] },
+  giustiziere_sacro:   { name: 'Giustiziere Sacro',       color: '#fde047', subclass: 'esorcista',       flavor: 'I debuffati muoiono. La luce giudica.',                                   skills: ['Caccia Sacra (P)','Sentenza Divina','Purgatorio','Ira dei Cieli'] },
+  prescelto:           { name: 'Prescelto del Destino',   color: '#d8b4fe', subclass: 'oracolo',         flavor: 'Critico garantito, destino resettato, fato manipolato.',                  skills: ['Tiro del Destino (P)','Occhio del Fato','Scelta del Destino','Colpo Predetto'] },
+  veggente_abissi:     { name: 'Veggente degli Abissi',   color: '#a855f7', subclass: 'oracolo',         flavor: 'Caos, paradossi, futuro alterato. La realtà cede.',                      skills: ['Visione del Caos','Futuro Alterato (P)','Paradosso Temporale','Fine Scritta'] },
+  // Ingegnere T3
+  mastro_ingegnere:    { name: 'Mastro Ingegnere',         color: '#cbd5e1', subclass: 'meccanico',       flavor: 'Doppia torretta, esoscheletro, fortezza. La macchina perfetta.',           skills: ['Doppia Torretta','Esoscheletro di Guerra','Ingegnere Supremo (P)','Fortezza Mobile'] },
+  macchinista_guerra:  { name: 'Macchinista di Guerra',    color: '#94a3b8', subclass: 'meccanico',       flavor: 'Carro, bombe a catena, devastazione totale.',                             skills: ['Carro d\'Assalto','Bomba a Catena','Sistema d\'Armi (P)','Devastazione Meccanica'] },
+  grande_alchimista:   { name: 'Grande Alchimista',        color: '#34d399', subclass: 'alchimista',      flavor: 'Pietra filosofale, trasmutazioni totali, pozioni divine.',                 skills: ['Pietra Filosofale','Trasmutazione Universale','Maestro delle Pozioni (P)','Acido Finale'] },
+  trasmutatore:        { name: 'Trasmutatore',             color: '#10b981', subclass: 'alchimista',      flavor: 'Il dolore diventa potere. La materia obbedisce.',                         skills: ['Conversione di Materia (P)','Fusione Elementale','Rigenesi','Grande Opera'] },
+  genio_creativo:      { name: 'Genio Creativo',           color: '#fb923c', subclass: 'inventore',       flavor: 'Invenzioni supreme, overload, paradossi tecnologici.',                    skills: ['Invenzione Suprema','Overload Tecnologico','Mente Brillante (P)','Paradosso dell\'Inventore'] },
+  golem_master:        { name: 'Golem Master',             color: '#f97316', subclass: 'inventore',       flavor: 'Golem omega, fusione, corpo di ferro. L\'uomo macchina.',                  skills: ['Golem da Combattimento','Fusione con il Golem','Corpo di Ferro (P)','Golem Omega'] },
+};
+
+const CLASS_SUBCLASS_MAP = {
+  'Mercenario': ['berserker', 'guardian', 'blade_master', 'sovereign'],
+  'Scout':      ['acrobat', 'shadow', 'duelist', 'sovereign'],
+  'Mago':       ['supreme_analyst', 'manipulator', 'artificer', 'sovereign'],
+  'Sacerdote':  ['guaritore', 'esorcista', 'oracolo', 'sovereign'],
+  'Ingegnere':  ['meccanico', 'alchimista', 'inventore', 'sovereign'],
+};
+
+const SUBCLASS_ADV_MAP = {
+  berserker:       ['war_god', 'blood_reaper'],
+  guardian:        ['living_fortress', 'iron_champion'],
+  blade_master:    ['sword_saint', 'dual_blade'],
+  acrobat:         ['sky_dancer', 'tempest'],
+  shadow:          ['absolute_phantom', 'illusory_blade'],
+  duelist:         ['master_fencer', 'eternal_champion'],
+  supreme_analyst: ['override_master', 'precision_tactician'],
+  manipulator:     ['curse_weaver', 'dominator'],
+  artificer:       ['construct_master', 'trap_specialist'],
+  sovereign:       ['world_ruler', 'living_legend'],
+  guaritore:       ['angelo_custode', 'fonte_vita'],
+  esorcista:       ['cavaliere_luce', 'giustiziere_sacro'],
+  oracolo:         ['prescelto', 'veggente_abissi'],
+  meccanico:       ['mastro_ingegnere', 'macchinista_guerra'],
+  alchimista:      ['grande_alchimista', 'trasmutatore'],
+  inventore:       ['genio_creativo', 'golem_master'],
+};
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -67,6 +155,7 @@ async function sendToGM(message) {
   busy = true;
   disableInput();
   const typingEl = addTyping();
+  let keepBusy = false;
   try {
     const data = await apiFetch('/chat', {
       method: 'POST',
@@ -74,16 +163,37 @@ async function sendToGM(message) {
       body: JSON.stringify({ message }),
     });
     typingEl.remove();
+
+    if (data.waiting_for_gm) {
+      currentState = data.state;
+      updateUI(data.state);
+      keepBusy = true;
+      showGMRespondPanel();
+      return;
+    }
+
     addGMMsg(data.narrative);
     currentState = data.state;
     updateUI(data.state);
     if (data.ui_events?.includes('level_up')) showLevelUp(data.state.profile.level);
+    if (data.ui_events?.includes('skill_unlocked') && data.new_skills?.length) {
+      showSkillUnlocked(data.new_skills[data.new_skills.length - 1].name);
+    }
+    if (data.new_titles?.length) {
+      data.new_titles.forEach((t, i) => setTimeout(() => showTitleUnlocked(t), i * 1200));
+    }
+    if (data.ui_events?.includes('subclass_available')) {
+      setTimeout(() => openSubclassModal(), 1000);
+    }
+    if (data.ui_events?.includes('advanced_class_available')) {
+      setTimeout(() => openAdvancedClassModal(), 1000);
+    }
   } catch (e) {
     typingEl.remove();
     addSystemMsg(`⚠ ${e.message}`);
   } finally {
     busy = false;
-    enableInput();
+    if (!keepBusy) enableInput();
   }
 }
 
@@ -115,8 +225,13 @@ resetBtn.addEventListener('click', async () => {
 function updateUI({ profile, inventory, skills, gameState: gs }) {
   if (!profile) return;
 
-  document.getElementById('player-name').textContent  = profile.name || '—';
-  document.getElementById('player-job').textContent   = profile.job  || '?';
+  document.getElementById('player-name').textContent = profile.name || '—';
+  const classLabel = profile.advanced_class
+    ? ADVANCED_CLASS_DATA[profile.advanced_class]?.name
+    : profile.subclass
+    ? SUBCLASS_DATA[profile.subclass]?.name
+    : (profile.job || '?');
+  document.getElementById('player-job').textContent = classLabel;
   document.getElementById('player-level').textContent = `Lv.${profile.level}`;
   document.getElementById('player-money').textContent = `${profile.money} R`;
 
@@ -143,8 +258,17 @@ function updateUI({ profile, inventory, skills, gameState: gs }) {
   openStatsModal.classList.toggle('hidden', pts === 0);
 
   const inCombat = gs.combat_active;
+  if (inCombat && !prevCombatState) playSound('combat_start');
+  prevCombatState = inCombat;
+
+  // Aggiorna badge GM mode
+  const gmBtn = document.getElementById('gm-mode-btn');
+  if (gmBtn) gmBtn.classList.toggle('active', !!gs.gm_mode);
+
   const locEl = document.getElementById('location-text');
-  locEl.textContent = (inCombat ? '⚔ ' : '🏙 ') + (gs.location || '—');
+  const cityLine = (inCombat ? '⚔ ' : '🏙 ') + (gs.location || '—');
+  const subLine  = gs.sub_location ? `\n📍 ${gs.sub_location}` : '';
+  locEl.textContent = cityLine + subLine;
   locEl.classList.toggle('in-combat', inCombat);
 
   // Negozio: abilita solo in safe zone e se personaggio creato
@@ -160,6 +284,9 @@ function updateUI({ profile, inventory, skills, gameState: gs }) {
   renderEquipment(inventory.equipped || {});
   renderSkills(gs.skill_loadout || [], profile.skill_slots || 4);
   renderBag(inventory.bag || []);
+  renderTitles(profile.titles || []);
+  renderStatusEffects(profile.status_effects || []);
+  renderReputation(profile.reputation || {});
 }
 
 function setBar(name, current, max) {
@@ -169,6 +296,18 @@ function setBar(name, current, max) {
   const pct = max > 0 ? Math.max(0, Math.min(100, (current / max) * 100)) : 0;
   fill.style.width = pct + '%';
   val.textContent = `${current}/${max}`;
+}
+
+// ── Titles ────────────────────────────────────────────────────────────────────
+function renderTitles(titles) {
+  const section = document.getElementById('titles-section');
+  const list    = document.getElementById('titles-list');
+  if (!section || !list) return;
+  if (!titles.length) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  list.innerHTML = titles.slice(-5).map(t =>
+    `<div class="title-badge">${t.name}</div>`
+  ).join('');
 }
 
 // ── Enemy ─────────────────────────────────────────────────────────────────────
@@ -216,10 +355,23 @@ function renderCombatLog(entries, inCombat) {
 const SLOT_LABELS = { weapon:'ARMA',offhand:'SEC.',head:'TESTA',chest:'TORSO',legs:'GAMBE',boots:'STIV.',accessory_1:'ACC.1',accessory_2:'ACC.2' };
 
 function renderEquipment(equipped) {
+  const bag = currentState?.inventory?.bag || [];
+  const hasMaterials = bag.some(it => it.type === 'material');
   document.getElementById('equipment-slots').innerHTML =
     Object.entries(SLOT_LABELS).map(([key, label]) => {
       const item = equipped[key];
-      return `<div class="equip-slot"><span class="equip-slot-name">${label}</span>${item?`<span class="equip-slot-item">${item.name}</span>`:`<span class="equip-slot-empty">vuoto</span>`}</div>`;
+      if (!item) return `<div class="equip-slot"><span class="equip-slot-name">${label}</span><span class="equip-slot-empty">vuoto</span></div>`;
+      const enh = item.enhancement_level || 0;
+      const canEnh = hasMaterials && item.type !== 'consumable' && enh < 5;
+      const enhBadge = enh > 0 ? ` <span class="bag-enhance-badge">+${enh}</span>` : '';
+      return `<div class="equip-slot">
+        <span class="equip-slot-name">${label}</span>
+        <span class="equip-slot-item">${item.name}${enhBadge}</span>
+        <div style="display:flex;gap:3px">
+          ${canEnh ? `<button class="equip-enh-btn" onclick="enhanceItem('${key}',null)" title="Potenzia">✦</button>` : ''}
+          <button class="equip-unequip-btn" onclick="unequipItem('${key}')" title="Rimuovi">✕</button>
+        </div>
+      </div>`;
     }).join('');
 }
 
@@ -235,14 +387,200 @@ function renderSkills(loadout, maxSlots) {
 function renderBag(bag) {
   const el = document.getElementById('bag-list');
   if (!bag.length) { el.innerHTML = '<div class="bag-empty">borsa vuota</div>'; return; }
-  el.innerHTML = bag.map(item => {
-    const name = item.name || item, qty = item.quantity;
-    return `<div class="bag-item"><span>${name}</span>${qty>1?`<span class="bag-item-qty">×${qty}</span>`:''}</div>`;
+  el.innerHTML = bag.map((item, i) => {
+    const name = item.name || item;
+    const qty  = item.quantity;
+    const isUnknown    = item.appraised === false;
+    const isConsumable = item.type === 'consumable';
+    const isEquippable = item.slot && item.slot !== 'null' && !isConsumable;
+
+    const enh = item.enhancement_level || 0;
+    const hasMaterials = !isUnknown && (currentState?.inventory?.bag || []).some(it => it.type === 'material');
+    const canEnhance   = !isUnknown && !isConsumable && item.type !== 'material' && enh < 5 && hasMaterials;
+
+    let actionBtn = '';
+    if (isUnknown) {
+      actionBtn = `<button class="bag-item-btn bag-appraise-btn" onclick="appraiseItem(${i})">Valuta</button>`;
+    } else if (isConsumable) {
+      actionBtn = `<button class="bag-item-btn bag-use-btn" onclick="useItem(${i})">Usa</button>`;
+    } else if (isEquippable) {
+      actionBtn = `<button class="bag-item-btn bag-equip-btn" onclick="equipItem(${i})">Equipa</button>`;
+    } else if (item.type === 'material') {
+      actionBtn = `<span class="bag-material-tag">materiale</span>`;
+    }
+    if (canEnhance) {
+      actionBtn += `<button class="bag-item-btn bag-enhance-btn" onclick="enhanceItem(null,${i})" title="Potenzia">✦</button>`;
+    }
+
+    const nameHtml = isUnknown
+      ? `${name} <span class="bag-unknown-badge">?</span>`
+      : enh > 0
+        ? `${name} <span class="bag-enhance-badge">+${enh}</span>`
+        : name;
+
+    return `<div class="bag-item${isUnknown ? ' bag-item-unknown' : ''}">
+      <div class="bag-item-main">
+        <span class="bag-item-name">${nameHtml}</span>
+        ${qty > 1 ? `<span class="bag-item-qty">×${qty}</span>` : ''}
+      </div>
+      ${actionBtn}
+    </div>`;
   }).join('');
+}
+
+// ── Status Effects ────────────────────────────────────────────────────────────
+const STATUS_TYPE_CLASS = { buff: 'status-buff', debuff: 'status-debuff' };
+
+function renderStatusEffects(effects) {
+  const section = document.getElementById('status-effects-section');
+  const list    = document.getElementById('status-effects-list');
+  if (!section || !list) return;
+  if (!effects || !effects.length) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  list.innerHTML = effects.map(s => {
+    const cls = STATUS_TYPE_CLASS[s.type] || 'status-debuff';
+    return `<div class="status-pill ${cls}" style="--status-color:${s.color || '#ef4444'}">
+      <span class="status-pill-dot"></span>
+      <span class="status-pill-name">${s.name}</span>
+      <span class="status-pill-turns">${s.turns_remaining}t</span>
+    </div>`;
+  }).join('');
+}
+
+// ── Reputation ────────────────────────────────────────────────────────────────
+const REP_FACTIONS_UI = [
+  { id: 'hunters_guild', label: 'Gilda Cacciatori' },
+  { id: 'merchants',     label: 'Mercanti' },
+  { id: 'city_guard',    label: 'Guardie' },
+  { id: 'scholars',      label: 'Studiosi' },
+  { id: 'underground',   label: 'Sotterranei' },
+];
+
+function repLabelUI(val) {
+  if (val <= -51) return { text: 'Nemico',     color: '#ef4444' };
+  if (val <= -11) return { text: 'Diffidente', color: '#f59e0b' };
+  if (val <=  10) return { text: 'Neutrale',   color: '#6b7280' };
+  if (val <=  50) return { text: 'Amico',      color: '#3b82f6' };
+  return             { text: 'Alleato',     color: '#22c55e' };
+}
+
+function renderReputation(reputation) {
+  const section = document.getElementById('reputation-section');
+  const list    = document.getElementById('reputation-list');
+  if (!section || !list) return;
+  const rep = reputation || {};
+  const hasAny = REP_FACTIONS_UI.some(f => (rep[f.id] || 0) !== 0);
+  if (!hasAny) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  list.innerHTML = REP_FACTIONS_UI.map(f => {
+    const val = rep[f.id] || 0;
+    const { text, color } = repLabelUI(val);
+    const pct = Math.max(0, Math.min(100, (val + 100) / 2));
+    return `<div class="rep-row">
+      <span class="rep-name">${f.label}</span>
+      <div class="rep-bar-track"><div class="rep-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+      <span class="rep-label" style="color:${color}">${text}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── Enhancement ───────────────────────────────────────────────────────────────
+async function enhanceItem(slot, bagIndex) {
+  if (!currentState) return;
+  const bag = currentState.inventory.bag || [];
+  const materialIndices = bag.map((it, i) => ({ it, i })).filter(({ it }) => it.type === 'material');
+  if (!materialIndices.length) { addSystemMsg('⚠ Nessun materiale in borsa per il potenziamento.'); return; }
+
+  const matList = materialIndices.map(({ it, i }) => `[${i}] ${it.name} (${it.rarity})`).join('\n');
+  const matChoice = prompt(`Scegli il materiale da usare (inserisci il numero indice):\n${matList}`);
+  if (matChoice === null) return;
+  const matIdx = parseInt(matChoice);
+  if (isNaN(matIdx) || !materialIndices.find(m => m.i === matIdx)) { addSystemMsg('⚠ Indice materiale non valido.'); return; }
+
+  const body = slot
+    ? { slot, material_bag_index: matIdx }
+    : { bag_index: bagIndex, material_bag_index: matIdx };
+
+  try {
+    const data = await apiFetch('/enhance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    currentState.profile   = data.profile;
+    currentState.inventory = data.inventory;
+    updateUI(currentState);
+    addSystemMsg(`✦ ${data.itemName} potenziato a +${data.newLevel} (-${data.cost} R).`);
+    if (data.profile.money <= 50) addSystemMsg('⚠ Ragne in esaurimento.');
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+}
+
+async function appraiseItem(index) {
+  try {
+    const data = await apiFetch('/appraise-item', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bag_index: index }),
+    });
+    if (data.result === 'success') {
+      currentState.inventory = data.inventory;
+      updateUI(currentState);
+      addSystemMsg(`✓ ${data.text}`);
+      if (data.item) addSystemMsg(`→ ${data.item.name}: ${Object.entries(data.item.stat_bonus || {}).map(([k,v])=>`${k} +${v}`).join(', ') || 'nessun bonus stat'} (${data.item.rarity})`);
+    } else {
+      addSystemMsg(`⚠ ${data.text}`);
+    }
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+}
+
+// ── Equip / Unequip / Use ─────────────────────────────────────────────────────
+async function equipItem(index) {
+  try {
+    const data = await apiFetch('/equip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bag_index: index }),
+    });
+    currentState.profile   = data.profile;
+    currentState.inventory = data.inventory;
+    updateUI(currentState);
+    addSystemMsg(`Equipaggiato: ${data.itemName}`);
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+}
+
+async function unequipItem(slot) {
+  try {
+    const data = await apiFetch('/unequip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slot }),
+    });
+    currentState.profile   = data.profile;
+    currentState.inventory = data.inventory;
+    updateUI(currentState);
+    addSystemMsg(`${data.itemName} rimosso dall'equipaggiamento.`);
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+}
+
+async function useItem(index) {
+  try {
+    const data = await apiFetch('/use-item', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bag_index: index }),
+    });
+    currentState.profile   = data.profile;
+    currentState.inventory = data.inventory;
+    updateUI(currentState);
+    if (data.effects?.hp > 0) playSound('heal');
+    const suffix = data.effects_text ? ` (${data.effects_text})` : '';
+    addSystemMsg(`${data.itemName} usato.${suffix}`);
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
 }
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
 function addGMMsg(narrative, isHistory=false) {
+  if (!isHistory) playSound('message');
   const div = document.createElement('div');
   div.className = `message msg-gm${isHistory?' history':''}`;
   div.innerHTML = `<div class="msg-label">GM — SHANGRI-LA FRONTIER</div><div>${marked.parse(narrative)}</div>`;
@@ -276,10 +614,31 @@ function disableInput() { chatInput.disabled=true;  sendBtn.disabled=true; }
 
 // ── Level Up ──────────────────────────────────────────────────────────────────
 function showLevelUp(level) {
+  playSound('levelup');
   const toast = document.getElementById('levelup-toast');
   document.getElementById('lu-level').textContent = `Lv.${level}`;
   toast.classList.remove('hidden');
   setTimeout(() => toast.classList.add('hidden'), 3400);
+}
+
+function showSkillUnlocked(skillName) {
+  playSound('message');
+  const toast = document.getElementById('skill-toast');
+  document.getElementById('skill-toast-name').textContent = skillName || '—';
+  toast.classList.remove('hidden');
+  setTimeout(() => toast.classList.add('hidden'), 3000);
+}
+
+function showTitleUnlocked(title) {
+  playSound('levelup');
+  const toast = document.getElementById('title-toast');
+  document.getElementById('title-toast-name').textContent = title?.name || '—';
+  const rewardEl = document.getElementById('title-toast-reward');
+  const stats = title?.rewards?.stats || {};
+  const parts = Object.entries(stats).map(([k, v]) => `${k} +${v}`);
+  rewardEl.textContent = parts.length ? parts.join(' · ') : '';
+  toast.classList.remove('hidden');
+  setTimeout(() => toast.classList.add('hidden'), 4000);
 }
 
 // ── Modal helpers ─────────────────────────────────────────────────────────────
@@ -620,12 +979,20 @@ async function confirmStatAlloc() {
   const totalSpent = Object.values(saAlloc).reduce((a,b)=>a+b, 0);
   if (totalSpent === 0) { closeModal('modal-stats'); return; }
   try {
-    await apiFetch('/allocate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({allocations:saAlloc}) });
+    const data = await apiFetch('/allocate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({allocations:saAlloc}) });
     const freshState = await apiFetch('/state');
     currentState = freshState;
     updateUI(freshState);
     closeModal('modal-stats');
     addSystemMsg(`Punti distribuiti: ${Object.entries(saAlloc).filter(([,v])=>v>0).map(([k,v])=>`${k}+${v}`).join(', ')}`);
+    if (data.new_skills?.length) {
+      data.new_skills.forEach((sk, i) => setTimeout(() => showSkillUnlocked(sk.name), i * 800));
+    }
+    if (data.new_titles?.length) {
+      data.new_titles.forEach((t, i) => setTimeout(() => showTitleUnlocked(t), (data.new_skills?.length || 0) * 800 + i * 1200));
+    }
+    if (data.subclass_available)       setTimeout(() => openSubclassModal(),       1200);
+    if (data.advanced_class_available) setTimeout(() => openAdvancedClassModal(), 1200);
   } catch (e) { addSystemMsg(`⚠ ${e.message}`); closeModal('modal-stats'); }
 }
 
@@ -633,6 +1000,105 @@ document.getElementById('sa-confirm').addEventListener('click', confirmStatAlloc
 document.getElementById('sa-cancel').addEventListener('click',  () => closeModal('modal-stats'));
 openStatsModal.addEventListener('click', openStatModal);
 statPointsBox.addEventListener('click',  openStatModal);
+
+// ────────────────────────────────────────────────────────────────────────────
+// SKILL TREE VIEW
+// ────────────────────────────────────────────────────────────────────────────
+const BASE_BRANCH_LABELS = { base:'Base', STR:'Forza', DEX:'Destrezza', AGI:'Agilità', TEC:'Tecnica', VIT:'Vitalità', LUC:'Fortuna', unique:'Unici', special:'Speciali' };
+const BASE_BRANCH_ORDER  = ['base','STR','DEX','AGI','TEC','VIT','LUC','unique','special'];
+
+function renderSkillTree() {
+  if (!currentState) return;
+  const { profile, skills } = currentState;
+  const learnedIds = new Set(skills.skills.filter(s => s.unlocked_by_default || s.learned).map(s => s.id));
+
+  // Dynamic branch order: base + class-base + player's T2/T3 branches
+  const branchOrder = [...BASE_BRANCH_ORDER];
+  if (profile.job) branchOrder.splice(branchOrder.indexOf('special'), 0, `${profile.job.toLowerCase()}_base`);
+  if (profile.subclass)       branchOrder.push(`t2_${profile.subclass}`);
+  if (profile.advanced_class) branchOrder.push(`t3_${profile.advanced_class}`);
+
+  // Branch labels including class-base, T2/T3
+  const branchLabels = { ...BASE_BRANCH_LABELS };
+  if (profile.job) branchLabels[`${profile.job.toLowerCase()}_base`] = `${profile.job} (Base)`;
+  if (profile.subclass)       branchLabels[`t2_${profile.subclass}`]       = `${SUBCLASS_DATA[profile.subclass]?.name || profile.subclass} (T2)`;
+  if (profile.advanced_class) branchLabels[`t3_${profile.advanced_class}`] = `${ADVANCED_CLASS_DATA[profile.advanced_class]?.name || profile.advanced_class} (T3)`;
+
+  const byBranch = {};
+  branchOrder.forEach(b => { byBranch[b] = []; });
+  skills.skills.forEach(sk => {
+    const b = sk.branch || 'base';
+    if (!byBranch[b]) byBranch[b] = [];
+    byBranch[b].push(sk);
+  });
+
+  return branchOrder
+    .filter(b => byBranch[b].length)
+    .map(b => {
+      const cards = byBranch[b].map(sk => {
+        const isLearned = learnedIds.has(sk.id);
+        const req = sk.requirements || {};
+        const statOk  = !req.stats          || Object.entries(req.stats).every(([s, v]) => (profile.stats[s] || 0) >= v);
+        const skillOk = !req.skill          || learnedIds.has(req.skill);
+        const titleOk = !req.title          || (profile.titles || []).some(t => t.id === req.title);
+        const subclOk = !req.subclass       || profile.subclass       === req.subclass;
+        const advclOk = !req.advanced_class || profile.advanced_class === req.advanced_class;
+        const avail   = statOk && skillOk && titleOk && subclOk && advclOk;
+
+        const reqParts = [];
+        if (req.stats)          Object.entries(req.stats).forEach(([s,v]) => reqParts.push(`${s} ≥ ${v}`));
+        if (req.skill)          { const p = skills.skills.find(s2=>s2.id===req.skill); reqParts.push(`Req: ${p?.name||req.skill}`); }
+        if (req.title)          reqParts.push('Titolo richiesto');
+        if (req.subclass)       reqParts.push(`Spec: ${SUBCLASS_DATA[req.subclass]?.name||req.subclass}`);
+        if (req.advanced_class) reqParts.push(`Classe: ${ADVANCED_CLASS_DATA[req.advanced_class]?.name||req.advanced_class}`);
+
+        const costText  = Object.entries(sk.cost||{}).map(([k,v])=>`${k}:${v}`).join(' ');
+        const cls       = isLearned ? 'tree-learned' : avail ? 'tree-available' : 'tree-locked';
+        const icon      = isLearned ? '✓' : avail ? '◈' : '⬡';
+        const isPassive = sk.type === 'passive';
+
+        return `<div class="tree-skill ${cls}">
+          <div class="tree-skill-head">
+            <span class="tree-skill-icon">${icon}</span>
+            <span class="tree-skill-name">${sk.name}</span>
+            ${isPassive ? '<span class="tree-passive-tag">P</span>' : ''}
+          </div>
+          ${costText ? `<div class="tree-skill-cost">${costText}</div>` : ''}
+          <div class="tree-skill-effect">${sk.effect}</div>
+          ${reqParts.length ? `<div class="tree-skill-req">${reqParts.join(' · ')}</div>` : ''}
+        </div>`;
+      }).join('');
+
+      // Branch color from class data
+      let branchColor = '';
+      if (b.startsWith('t2_')) {
+        const sc = b.slice(3);
+        branchColor = `style="--branch-color:${SUBCLASS_DATA[sc]?.color||'var(--accent)'}"`;
+      } else if (b.startsWith('t3_')) {
+        const ac = b.slice(3);
+        branchColor = `style="--branch-color:${ADVANCED_CLASS_DATA[ac]?.color||'var(--accent)'}"`;
+      }
+
+      return `<div class="tree-branch" ${branchColor}>
+        <div class="tree-branch-label">${branchLabels[b]}</div>
+        ${cards}
+      </div>`;
+    }).join('');
+}
+
+let skillModalTab = 'loadout';
+
+function switchSkillTab(tab) {
+  skillModalTab = tab;
+  document.getElementById('sk-tab-loadout').classList.toggle('active', tab === 'loadout');
+  document.getElementById('sk-tab-tree').classList.toggle('active', tab === 'tree');
+  document.getElementById('sl-list').classList.toggle('hidden', tab !== 'loadout');
+  document.getElementById('skill-tree-panel').classList.toggle('hidden', tab !== 'tree');
+  document.getElementById('modal-skills-actions').classList.toggle('hidden', tab !== 'loadout');
+  if (tab === 'tree') {
+    document.getElementById('skill-tree-panel').innerHTML = renderSkillTree() || '<div style="color:var(--text-dim);padding:20px;font-style:italic">Nessuna skill disponibile.</div>';
+  }
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // MODAL SKILL LOADOUT
@@ -647,6 +1113,12 @@ function openSkillModal() {
   const maxSlots  = profile.skill_slots || 4;
   document.getElementById('sl-max').textContent  = maxSlots;
   document.getElementById('sl-used').textContent = slSelected.size;
+  skillModalTab = 'loadout';
+  document.getElementById('sk-tab-loadout').classList.add('active');
+  document.getElementById('sk-tab-tree').classList.remove('active');
+  document.getElementById('sl-list').classList.remove('hidden');
+  document.getElementById('skill-tree-panel').classList.add('hidden');
+  document.getElementById('modal-skills-actions').classList.remove('hidden');
   const list = document.getElementById('sl-list');
   if (!available.length) {
     list.innerHTML = '<div class="sl-empty">Nessuna skill disponibile. Sblocca skill giocando!</div>';
@@ -690,6 +1162,236 @@ async function confirmSkillLoadout() {
 document.getElementById('sl-confirm').addEventListener('click', confirmSkillLoadout);
 document.getElementById('sl-cancel').addEventListener('click',  () => closeModal('modal-skills'));
 openSkillsModal.addEventListener('click', openSkillModal);
+
+// ────────────────────────────────────────────────────────────────────────────
+// SOUND SYSTEM (Web Audio API sintetizzata, zero file audio)
+// ────────────────────────────────────────────────────────────────────────────
+let soundEnabled = true;
+let _audioCtx    = null;
+
+function getAudioCtx() {
+  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return _audioCtx;
+}
+
+function playNote(freq, type, startTime, duration, gain) {
+  try {
+    const ctx  = getAudioCtx();
+    const osc  = ctx.createOscillator();
+    const vol  = ctx.createGain();
+    osc.connect(vol);
+    vol.connect(ctx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, ctx.currentTime + startTime);
+    vol.gain.setValueAtTime(gain, ctx.currentTime + startTime);
+    vol.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startTime + duration);
+    osc.start(ctx.currentTime + startTime);
+    osc.stop(ctx.currentTime + startTime + duration);
+  } catch { /* browser senza Web Audio */ }
+}
+
+function playSound(type) {
+  if (!soundEnabled) return;
+  switch (type) {
+    case 'message':
+      playNote(660, 'sine', 0, 0.12, 0.1);
+      break;
+    case 'levelup':
+      [261, 330, 392, 523, 659].forEach((f, i) => playNote(f, 'sine', i * 0.1, 0.3, 0.25));
+      break;
+    case 'combat_start':
+      playNote(140, 'sawtooth', 0,    0.12, 0.22);
+      playNote(110, 'square',   0.06, 0.18, 0.18);
+      playNote(185, 'sawtooth', 0.14, 0.22, 0.15);
+      break;
+    case 'damage':
+      playNote(90,  'sawtooth', 0,    0.08, 0.28);
+      playNote(65,  'square',   0.06, 0.14, 0.2);
+      break;
+    case 'heal':
+      playNote(523, 'sine', 0,   0.1,  0.14);
+      playNote(659, 'sine', 0.1, 0.15, 0.11);
+      break;
+  }
+}
+
+document.getElementById('sound-btn').addEventListener('click', () => {
+  soundEnabled = !soundEnabled;
+  const btn = document.getElementById('sound-btn');
+  btn.textContent = soundEnabled ? '🔊' : '🔇';
+  btn.classList.toggle('active', soundEnabled);
+  btn.title = soundEnabled ? 'Suoni attivi' : 'Suoni disattivati';
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// MODALITÀ GM UMANO
+// ────────────────────────────────────────────────────────────────────────────
+function showGMRespondPanel() {
+  waitingForGM = true;
+  document.getElementById('gm-respond-panel').classList.remove('hidden');
+  document.getElementById('gm-narrative-input').value = '';
+  document.getElementById('gm-narrative-input').focus();
+}
+
+function hideGMRespondPanel() {
+  waitingForGM = false;
+  document.getElementById('gm-respond-panel').classList.add('hidden');
+}
+
+document.getElementById('gm-mode-btn').addEventListener('click', async () => {
+  try {
+    const data = await apiFetch('/gm-mode', { method: 'POST' });
+    document.getElementById('gm-mode-btn').classList.toggle('active', data.gm_mode);
+    document.getElementById('gm-mode-btn').title = data.gm_mode ? 'Disattiva GM umano' : 'Attiva GM umano';
+    addSystemMsg(data.gm_mode ? '🎭 Modalità GM umano attivata.' : '🤖 Modalità AI attivata.');
+    if (!data.gm_mode) hideGMRespondPanel();
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+});
+
+document.getElementById('gm-respond-btn').addEventListener('click', async () => {
+  const narrative = document.getElementById('gm-narrative-input').value.trim();
+  if (!narrative) return;
+  hideGMRespondPanel();
+  try {
+    const data = await apiFetch('/gm-respond', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ narrative }),
+    });
+    addGMMsg(data.narrative);
+    currentState = data.state;
+    updateUI(data.state);
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+  enableInput();
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// CONFIGURATORE MAPPA
+// ────────────────────────────────────────────────────────────────────────────
+let mapConfigZones = [];
+let editingZoneId  = undefined; // undefined=niente, null=nuova zona, string=id zona esistente
+
+const ZONE_TYPES = { safe: 'Città / HUB', combat: 'Zona Combat', dungeon: 'Dungeon', boss: 'Boss' };
+
+function openMapConfigurator() {
+  mapConfigZones = JSON.parse(JSON.stringify(worldMapZones));
+  editingZoneId  = undefined;
+  renderConfigModal();
+  document.getElementById('modal-map-config').classList.remove('hidden');
+}
+
+function renderConfigModal() {
+  const listEl = document.getElementById('config-zone-list');
+
+  listEl.innerHTML = mapConfigZones.map(z => `
+    <div class="config-zone-row${editingZoneId === z.id ? ' selected' : ''}" onclick="selectZoneEdit('${z.id}')">
+      <div class="config-zone-info">
+        <span class="config-zone-name">${z.name}</span>
+        <span class="config-zone-tier">${z.type} · ${z.tier}</span>
+      </div>
+      <button class="config-zone-del" onclick="event.stopPropagation();deleteConfigZone('${z.id}')" title="Elimina">✕</button>
+    </div>
+  `).join('') + `<button class="config-add-btn" onclick="selectZoneEdit(null)">+ Nuova Zona</button>`;
+
+  const formEl = document.getElementById('config-zone-form');
+  if (editingZoneId === undefined) {
+    formEl.innerHTML = '<div class="config-placeholder">Seleziona una zona da modificare o aggiungi una nuova.</div>';
+  } else {
+    renderZoneForm(editingZoneId);
+  }
+}
+
+function selectZoneEdit(id) {
+  editingZoneId = id;
+  renderConfigModal();
+}
+
+function renderZoneForm(id) {
+  const formEl = document.getElementById('config-zone-form');
+  const zone   = (id !== null) ? mapConfigZones.find(z => z.id === id) : null;
+  const others = mapConfigZones.filter(z => z.id !== id);
+
+  const connsHtml = others.length
+    ? others.map(z => {
+        const checked = zone?.connections?.includes(z.id) ? 'checked' : '';
+        return `<label class="conn-label"><input type="checkbox" class="conn-check" value="${z.id}" ${checked}> ${z.name}</label>`;
+      }).join('')
+    : '<span style="color:var(--text-dim);font-size:11px;font-style:italic">Aggiungi prima altre zone.</span>';
+
+  formEl.innerHTML = `
+    <div class="form-title">${zone ? 'MODIFICA: ' + zone.name : 'NUOVA ZONA'}</div>
+    <div class="form-row"><label>Nome</label><input id="zf-name" class="form-input" value="${zone?.name || ''}" placeholder="Nome zona"></div>
+    <div class="form-row"><label>Sottotitolo</label><input id="zf-sub" class="form-input" value="${zone?.subtitle || ''}" placeholder="es. Zona F–E, Dungeon livello 15+"></div>
+    <div class="form-row">
+      <label>Tipo</label>
+      <select id="zf-type" class="form-input">
+        ${Object.entries(ZONE_TYPES).map(([v, l]) => `<option value="${v}"${zone?.type === v ? ' selected' : ''}>${l}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-row"><label>Tier</label><input id="zf-tier" class="form-input" value="${zone?.tier || 'F'}" placeholder="es. HUB, F-E, B-A, SS"></div>
+    <div class="form-row-3">
+      <div class="form-row"><label>X (0-500)</label><input id="zf-x" class="form-input" type="number" min="0" max="500" value="${zone?.x ?? 250}"></div>
+      <div class="form-row"><label>Y (0-450)</label><input id="zf-y" class="form-input" type="number" min="0" max="450" value="${zone?.y ?? 225}"></div>
+      <div class="form-row"><label>Raggio</label><input id="zf-r" class="form-input" type="number" min="10" max="40" value="${zone?.r ?? 18}"></div>
+    </div>
+    <div class="form-section-label">Connessioni</div>
+    <div class="conn-grid">${connsHtml}</div>
+    <button class="btn-primary form-save-btn" onclick="saveZoneForm()">Salva Zona</button>
+  `;
+}
+
+function saveZoneForm() {
+  const name = document.getElementById('zf-name')?.value.trim();
+  if (!name) { addSystemMsg('⚠ Il nome zona è obbligatorio.'); return; }
+
+  const id = (editingZoneId !== null && editingZoneId !== undefined)
+    ? editingZoneId
+    : name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+
+  const connections = [...document.querySelectorAll('.conn-check:checked')].map(el => el.value);
+
+  const zone = {
+    id,
+    name,
+    subtitle:    document.getElementById('zf-sub')?.value.trim() || '',
+    type:        document.getElementById('zf-type')?.value || 'combat',
+    tier:        document.getElementById('zf-tier')?.value.trim() || 'F',
+    x:           parseInt(document.getElementById('zf-x')?.value) || 250,
+    y:           parseInt(document.getElementById('zf-y')?.value) || 225,
+    r:           parseInt(document.getElementById('zf-r')?.value) || 18,
+    connections,
+  };
+
+  const idx = mapConfigZones.findIndex(z => z.id === id);
+  if (idx >= 0) mapConfigZones[idx] = zone;
+  else          mapConfigZones.push(zone);
+
+  editingZoneId = id;
+  renderConfigModal();
+  addSystemMsg(`Zona "${name}" aggiornata. Premi "Salva Mappa" per confermare.`);
+}
+
+function deleteConfigZone(id) {
+  const zone = mapConfigZones.find(z => z.id === id);
+  if (!zone || !confirm(`Eliminare la zona "${zone.name}"?`)) return;
+  mapConfigZones = mapConfigZones.filter(z => z.id !== id);
+  mapConfigZones.forEach(z => { z.connections = (z.connections || []).filter(c => c !== id); });
+  if (editingZoneId === id) editingZoneId = undefined;
+  renderConfigModal();
+}
+
+async function saveMapConfig() {
+  try {
+    await apiFetch('/world-map', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ zones: mapConfigZones }),
+    });
+    worldMapZones = JSON.parse(JSON.stringify(mapConfigZones));
+    closeModal('modal-map-config');
+    addSystemMsg(`✓ Mappa salvata: ${mapConfigZones.length} zone.`);
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // ESPORTAZIONE SESSIONE
@@ -776,6 +1478,124 @@ async function deleteSlot(id) {
     const slots = await apiFetch('/slots');
     renderSlots(slots);
     addSystemMsg(`Slot ${id} eliminato.`);
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// SELEZIONE CLASSE (T2 / T3)
+// ────────────────────────────────────────────────────────────────────────────
+function openSubclassModal() {
+  if (!currentState) return;
+  if (currentState.profile.subclass) return; // già scelto
+  const job  = currentState.profile.job || '';
+  const opts = (CLASS_SUBCLASS_MAP[job] || Object.keys(SUBCLASS_DATA));
+  const el   = document.getElementById('subclass-options');
+  el.innerHTML = opts.map(id => {
+    const d = SUBCLASS_DATA[id];
+    if (!d) return '';
+    return `<div class="class-option-card" onclick="confirmSubclass('${id}')" style="--opt-color:${d.color}">
+      <div class="class-opt-color-bar" style="background:${d.color}"></div>
+      <div class="class-opt-name">${d.name}</div>
+      <div class="class-opt-flavor">${d.flavor}</div>
+      <div class="class-opt-skills">${d.skills.map(s=>`<div class="class-opt-skill">◈ ${s}</div>`).join('')}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('modal-subclass').classList.remove('hidden');
+}
+
+function openAdvancedClassModal() {
+  if (!currentState) return;
+  if (currentState.profile.advanced_class) return;
+  const subclass = currentState.profile.subclass;
+  if (!subclass) return;
+  const opts = SUBCLASS_ADV_MAP[subclass] || [];
+  const el   = document.getElementById('advanced-class-options');
+  el.innerHTML = opts.map(id => {
+    const d = ADVANCED_CLASS_DATA[id];
+    if (!d) return '';
+    return `<div class="class-option-card" onclick="confirmAdvancedClass('${id}')" style="--opt-color:${d.color}">
+      <div class="class-opt-color-bar" style="background:${d.color}"></div>
+      <div class="class-opt-name">${d.name}</div>
+      <div class="class-opt-flavor">${d.flavor}</div>
+      <div class="class-opt-skills">${d.skills.map(s=>`<div class="class-opt-skill">◈ ${s}</div>`).join('')}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('modal-advanced-class').classList.remove('hidden');
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// NPC MODAL
+// ────────────────────────────────────────────────────────────────────────────
+document.getElementById('npc-btn').addEventListener('click', openNpcModal);
+
+async function openNpcModal() {
+  document.getElementById('modal-npc').classList.remove('hidden');
+  document.getElementById('npc-list').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-dim);font-style:italic">Caricamento…</div>';
+  try {
+    const data = await apiFetch('/npcs');
+    renderNpcs(data.npcs || []);
+  } catch (e) {
+    document.getElementById('npc-list').innerHTML = `<div style="padding:20px;text-align:center;color:var(--enemy)">⚠ ${e.message}</div>`;
+  }
+}
+
+function renderNpcs(npcs) {
+  const el = document.getElementById('npc-list');
+  if (!npcs.length) {
+    el.innerHTML = '<div class="npc-empty">Nessun NPC incontrato ancora. Esplora e parla con gli abitanti del mondo!</div>';
+    return;
+  }
+  const gs = currentState?.gameState;
+  el.innerHTML = npcs.map(n => {
+    const { text: relText, color: relColor } = repLabelUI(n.relationship || 0);
+    const isHere = gs && (n.last_seen === gs.location || n.location === gs.location);
+    return `<div class="npc-card${isHere ? ' npc-here' : ''}">
+      <div class="npc-card-header">
+        <span class="npc-name">${n.name}</span>
+        ${isHere ? '<span class="npc-here-badge">qui ora</span>' : ''}
+        <span class="npc-faction">${n.faction || '—'}</span>
+      </div>
+      <div class="npc-rel-row">
+        <div class="rep-bar-track" style="flex:1"><div class="rep-bar-fill" style="width:${Math.max(0,Math.min(100,(n.relationship+100)/2))}%;background:${relColor}"></div></div>
+        <span class="rep-label" style="color:${relColor}">${relText}</span>
+      </div>
+      ${n.notes ? `<div class="npc-notes">${n.notes}</div>` : ''}
+      ${n.last_seen ? `<div class="npc-last-seen">Ultima volta: ${n.last_seen}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function confirmSubclass(id) {
+  closeModal('modal-subclass');
+  try {
+    const data = await apiFetch('/subclass', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subclass_id: id }),
+    });
+    currentState = data.state;
+    updateUI(data.state);
+    addSystemMsg(`Specializzazione scelta: ${data.subclass_name}`);
+    if (data.new_skills?.length) {
+      data.new_skills.forEach((sk, i) => setTimeout(() => showSkillUnlocked(sk.name), i * 600));
+    }
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+}
+
+async function confirmAdvancedClass(id) {
+  closeModal('modal-advanced-class');
+  try {
+    const data = await apiFetch('/advanced-class', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ advanced_class_id: id }),
+    });
+    currentState = data.state;
+    updateUI(data.state);
+    addSystemMsg(`Classe avanzata sbloccata: ${data.advanced_class_name}`);
+    if (data.new_skills?.length) {
+      data.new_skills.forEach((sk, i) => setTimeout(() => showSkillUnlocked(sk.name), i * 600));
+    }
   } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
 }
 

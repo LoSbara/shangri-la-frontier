@@ -4,28 +4,3198 @@
       "id": "basic_slash",
       "name": "Colpo Base",
       "type": "physical",
+      "branch": "base",
       "requirements": {},
-      "cost": { "STM": 5 },
-      "effect": "Attacco fisico standard. Danno = STR * 1.2",
+      "cost": {
+        "STM": 5
+      },
+      "effect": "Attacco fisico standard. Danno = STR × 1.2.",
       "unlocked_by_default": true
     },
     {
       "id": "basic_guard",
       "name": "Parata Base",
-      "type": "physical",
+      "type": "defensive",
+      "branch": "base",
       "requirements": {},
-      "cost": { "STM": 8 },
-      "effect": "Riduce il prossimo danno subito del 30%. Dipende da VIT.",
+      "cost": {
+        "STM": 8
+      },
+      "effect": "Riduce il prossimo danno subito del 30%.",
       "unlocked_by_default": true
     },
     {
       "id": "analyze",
       "name": "Analisi",
       "type": "utility",
+      "branch": "base",
       "requirements": {},
-      "cost": { "MP": 10 },
-      "effect": "Rivela statistiche e punti deboli di un nemico o oggetto. Precisione dipende da TEC e LUC.",
+      "cost": {
+        "MP": 10
+      },
+      "effect": "Rivela stat e debolezze nemiche. Precisione = f(TEC, LUC).",
       "unlocked_by_default": true
+    },
+    {
+      "id": "power_strike",
+      "name": "Colpo Potente",
+      "type": "physical",
+      "branch": "STR",
+      "requirements": {
+        "stats": {
+          "STR": 14
+        },
+        "skill": "basic_slash"
+      },
+      "cost": {
+        "STM": 12
+      },
+      "effect": "Danno = STR × 1.8. Può stordire il nemico per 1 turno."
+    },
+    {
+      "id": "armor_break",
+      "name": "Sfondamento",
+      "type": "physical",
+      "branch": "STR",
+      "requirements": {
+        "stats": {
+          "STR": 18
+        },
+        "skill": "power_strike"
+      },
+      "cost": {
+        "STM": 20
+      },
+      "effect": "Riduce la resistenza nemica del 20% per 2 turni. Danno = STR × 1.5."
+    },
+    {
+      "id": "devastation",
+      "name": "Devastazione",
+      "type": "physical",
+      "branch": "STR",
+      "requirements": {
+        "stats": {
+          "STR": 24
+        },
+        "skill": "armor_break"
+      },
+      "cost": {
+        "STM": 35
+      },
+      "effect": "Colpo singolo devastante. Danno = STR × 3.0."
+    },
+    {
+      "id": "passive_brute",
+      "name": "Forza Bruta",
+      "type": "passive",
+      "branch": "STR",
+      "requirements": {
+        "stats": {
+          "STR": 20
+        },
+        "skill": "power_strike"
+      },
+      "cost": {},
+      "effect": "PASSIVA: +15% danno fisico su ogni attacco."
+    },
+    {
+      "id": "precise_strike",
+      "name": "Colpo Preciso",
+      "type": "physical",
+      "branch": "DEX",
+      "requirements": {
+        "stats": {
+          "DEX": 14
+        },
+        "skill": "basic_slash"
+      },
+      "cost": {
+        "STM": 8
+      },
+      "effect": "Hit rate +30%. Danno = DEX × 1.4."
+    },
+    {
+      "id": "rapid_strikes",
+      "name": "Colpi Rapidi",
+      "type": "physical",
+      "branch": "DEX",
+      "requirements": {
+        "stats": {
+          "DEX": 18
+        },
+        "skill": "precise_strike"
+      },
+      "cost": {
+        "STM": 22
+      },
+      "effect": "3 colpi rapidi consecutivi, ciascuno = DEX × 0.7."
+    },
+    {
+      "id": "armor_pierce",
+      "name": "Perforazione",
+      "type": "physical",
+      "branch": "DEX",
+      "requirements": {
+        "stats": {
+          "DEX": 24
+        },
+        "skill": "rapid_strikes"
+      },
+      "cost": {
+        "STM": 28
+      },
+      "effect": "Ignora la schivata nemica. Danno = DEX × 2.0."
+    },
+    {
+      "id": "passive_keen_eye",
+      "name": "Occhio Affilato",
+      "type": "passive",
+      "branch": "DEX",
+      "requirements": {
+        "stats": {
+          "DEX": 20
+        },
+        "skill": "precise_strike"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Probabilità critico +10% su ogni attacco."
+    },
+    {
+      "id": "dash",
+      "name": "Scatto",
+      "type": "movement",
+      "branch": "AGI",
+      "requirements": {
+        "stats": {
+          "AGI": 14
+        }
+      },
+      "cost": {
+        "STM": 10
+      },
+      "effect": "Schivata garantita sul prossimo attacco ricevuto."
+    },
+    {
+      "id": "blade_dance",
+      "name": "Danza della Lama",
+      "type": "physical",
+      "branch": "AGI",
+      "requirements": {
+        "stats": {
+          "AGI": 18
+        },
+        "skill": "dash"
+      },
+      "cost": {
+        "STM": 18
+      },
+      "effect": "Contrattacco immediato dopo una schivata. Danno = AGI × 1.6."
+    },
+    {
+      "id": "phantom_step",
+      "name": "Passo Fantasma",
+      "type": "movement",
+      "branch": "AGI",
+      "requirements": {
+        "stats": {
+          "AGI": 24
+        },
+        "skill": "blade_dance"
+      },
+      "cost": {
+        "STM": 30
+      },
+      "effect": "Invisibilità per 1 turno. Il prossimo attacco è critico garantito."
+    },
+    {
+      "id": "passive_reflexes",
+      "name": "Riflessi Istintivi",
+      "type": "passive",
+      "branch": "AGI",
+      "requirements": {
+        "stats": {
+          "AGI": 20
+        },
+        "skill": "dash"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Schivata +15% in tutti i combattimenti."
+    },
+    {
+      "id": "deep_analyze",
+      "name": "Analisi Profonda",
+      "type": "utility",
+      "branch": "TEC",
+      "requirements": {
+        "stats": {
+          "TEC": 14
+        },
+        "skill": "analyze"
+      },
+      "cost": {
+        "MP": 15
+      },
+      "effect": "Rivela tutto del nemico al 100% + la sua prossima azione prevista."
+    },
+    {
+      "id": "weakness_mark",
+      "name": "Marchio di Debolezza",
+      "type": "debuff",
+      "branch": "TEC",
+      "requirements": {
+        "stats": {
+          "TEC": 18
+        },
+        "skill": "deep_analyze"
+      },
+      "cost": {
+        "MP": 20
+      },
+      "effect": "Amplifica del 35% i danni inflitti al nemico per 3 turni."
+    },
+    {
+      "id": "override",
+      "name": "Override",
+      "type": "special",
+      "branch": "TEC",
+      "requirements": {
+        "stats": {
+          "TEC": 24
+        },
+        "skill": "weakness_mark"
+      },
+      "cost": {
+        "MP": 40
+      },
+      "effect": "Usa la tecnica più letale del nemico contro di lui."
+    },
+    {
+      "id": "passive_tactical",
+      "name": "Mente Tattica",
+      "type": "passive",
+      "branch": "TEC",
+      "requirements": {
+        "stats": {
+          "TEC": 20
+        },
+        "skill": "deep_analyze"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Efficacia di tutte le skill speciali +20%."
+    },
+    {
+      "id": "iron_wall",
+      "name": "Muro di Ferro",
+      "type": "defensive",
+      "branch": "VIT",
+      "requirements": {
+        "stats": {
+          "VIT": 14
+        },
+        "skill": "basic_guard"
+      },
+      "cost": {
+        "STM": 15
+      },
+      "effect": "Riduce del 60% il danno del prossimo colpo subito."
+    },
+    {
+      "id": "regeneration",
+      "name": "Rigenerazione",
+      "type": "healing",
+      "branch": "VIT",
+      "requirements": {
+        "stats": {
+          "VIT": 18
+        },
+        "skill": "iron_wall"
+      },
+      "cost": {
+        "MP": 25
+      },
+      "effect": "Recupera VIT × 2 HP per turno per 3 turni."
+    },
+    {
+      "id": "indestructible",
+      "name": "Indistruttibile",
+      "type": "defensive",
+      "branch": "VIT",
+      "requirements": {
+        "stats": {
+          "VIT": 24
+        },
+        "skill": "regeneration"
+      },
+      "cost": {
+        "STM": 45
+      },
+      "effect": "Annulla il prossimo colpo letale (1 uso per combattimento)."
+    },
+    {
+      "id": "passive_nat_armor",
+      "name": "Corazza Naturale",
+      "type": "passive",
+      "branch": "VIT",
+      "requirements": {
+        "stats": {
+          "VIT": 20
+        },
+        "skill": "iron_wall"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Riduce tutti i danni subiti del 10%."
+    },
+    {
+      "id": "intuition",
+      "name": "Intuizione",
+      "type": "utility",
+      "branch": "LUC",
+      "requirements": {
+        "stats": {
+          "LUC": 14
+        }
+      },
+      "cost": {
+        "MP": 12
+      },
+      "effect": "Predice la prossima azione del nemico (il GM la rivela)."
+    },
+    {
+      "id": "lucky_strike",
+      "name": "Colpo Fortunato",
+      "type": "physical",
+      "branch": "LUC",
+      "requirements": {
+        "stats": {
+          "LUC": 18
+        },
+        "skill": "intuition"
+      },
+      "cost": {
+        "STM": 14
+      },
+      "effect": "Prossimo attacco con critico garantito all'80%."
+    },
+    {
+      "id": "mirage",
+      "name": "Miraggio",
+      "type": "special",
+      "branch": "LUC",
+      "requirements": {
+        "stats": {
+          "LUC": 24
+        },
+        "skill": "lucky_strike"
+      },
+      "cost": {
+        "MP": 35
+      },
+      "effect": "Il nemico perde il turno e subisce danno = LUC × 2."
+    },
+    {
+      "id": "passive_blessing",
+      "name": "Benedizione",
+      "type": "passive",
+      "branch": "LUC",
+      "requirements": {
+        "stats": {
+          "LUC": 20
+        },
+        "skill": "intuition"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Drop rate +25%, critico base +5%."
+    },
+    {
+      "id": "vorpal_soul",
+      "name": "Anima Vorpale",
+      "type": "special",
+      "branch": "unique",
+      "requirements": {
+        "title": "unique_slayer"
+      },
+      "cost": {
+        "MP": 50,
+        "STM": 30
+      },
+      "effect": "Skill esclusiva dei Unique Slayer. Danno massiccio basato su tutte le stat. Uso singolo per boss fight."
+    },
+    {
+      "id": "ber_rage",
+      "name": "Furia Berserker",
+      "type": "buff",
+      "branch": "t2_berserker",
+      "requirements": {
+        "subclass": "berserker"
+      },
+      "cost": {
+        "STM": 20
+      },
+      "effect": "Entra in stato berserk: +30% danno, -20% difesa per 3 turni."
+    },
+    {
+      "id": "ber_blood_price",
+      "name": "Prezzo di Sangue",
+      "type": "buff",
+      "branch": "t2_berserker",
+      "requirements": {
+        "subclass": "berserker"
+      },
+      "cost": {
+        "HP": 20
+      },
+      "effect": "Spendi 20 HP per guadagnare +4 STR temporaneo per ogni 10% HP già perso."
+    },
+    {
+      "id": "ber_rampage",
+      "name": "Rampaggio",
+      "type": "physical",
+      "branch": "t2_berserker",
+      "requirements": {
+        "subclass": "berserker"
+      },
+      "cost": {
+        "STM": 35
+      },
+      "effect": "5 colpi casuali in sequenza. Danno totale = STR × 4.5."
+    },
+    {
+      "id": "ber_last_stand",
+      "name": "Ultima Resistenza",
+      "type": "passive",
+      "branch": "t2_berserker",
+      "requirements": {
+        "subclass": "berserker"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Con HP < 20%, +50% danno e schivata +20%."
+    },
+    {
+      "id": "ber_war_cry",
+      "name": "Urlo di Guerra",
+      "type": "debuff",
+      "branch": "t2_berserker",
+      "requirements": {
+        "subclass": "berserker"
+      },
+      "cost": {
+        "STM": 15
+      },
+      "effect": "Intimidisce il nemico: -20% precisione nemica per 2 turni."
+    },
+    {
+      "id": "gua_iron_stance",
+      "name": "Postura di Ferro",
+      "type": "defensive",
+      "branch": "t2_guardian",
+      "requirements": {
+        "subclass": "guardian"
+      },
+      "cost": {
+        "STM": 20
+      },
+      "effect": "Riduce tutti i danni subiti del 40% per 2 turni."
+    },
+    {
+      "id": "gua_dmg_reflect",
+      "name": "Riflesso del Danno",
+      "type": "special",
+      "branch": "t2_guardian",
+      "requirements": {
+        "subclass": "guardian"
+      },
+      "cost": {
+        "MP": 25
+      },
+      "effect": "Riflette il 25% dei danni subiti al nemico per 3 turni."
+    },
+    {
+      "id": "gua_bulwark",
+      "name": "Bastione",
+      "type": "defensive",
+      "branch": "t2_guardian",
+      "requirements": {
+        "subclass": "guardian"
+      },
+      "cost": {
+        "STM": 30
+      },
+      "effect": "Aumenta VIT del 50% per 1 turno, immune agli effetti di stato."
+    },
+    {
+      "id": "gua_protector",
+      "name": "Protezione Assoluta",
+      "type": "passive",
+      "branch": "t2_guardian",
+      "requirements": {
+        "subclass": "guardian"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Ogni parata riuscita riduce il prossimo danno subito del 15% aggiuntivo."
+    },
+    {
+      "id": "gua_counter_stance",
+      "name": "Postura Contrattacco",
+      "type": "physical",
+      "branch": "t2_guardian",
+      "requirements": {
+        "subclass": "guardian"
+      },
+      "cost": {
+        "STM": 25
+      },
+      "effect": "Garantisce un contrattacco dopo ogni danno subito. Danno contrattacco = VIT × 1.5."
+    },
+    {
+      "id": "bm_focused",
+      "name": "Colpo Focalizzato",
+      "type": "physical",
+      "branch": "t2_blade_master",
+      "requirements": {
+        "subclass": "blade_master"
+      },
+      "cost": {
+        "MP": 20
+      },
+      "effect": "Carica per 1 turno, poi attacco = (STR + DEX) × 3.0 con precisione garantita."
+    },
+    {
+      "id": "bm_kata",
+      "name": "Kata della Spada",
+      "type": "physical",
+      "branch": "t2_blade_master",
+      "requirements": {
+        "subclass": "blade_master"
+      },
+      "cost": {
+        "STM": 28
+      },
+      "effect": "Sequenza di 4 colpi tecnici. Danno totale = DEX × 4.8."
+    },
+    {
+      "id": "bm_resonance",
+      "name": "Risonanza della Lama",
+      "type": "buff",
+      "branch": "t2_blade_master",
+      "requirements": {
+        "subclass": "blade_master"
+      },
+      "cost": {
+        "MP": 15
+      },
+      "effect": "I prossimi 3 attacchi ignorano la resistenza nemica."
+    },
+    {
+      "id": "bm_edge",
+      "name": "Filo Perfetto",
+      "type": "passive",
+      "branch": "t2_blade_master",
+      "requirements": {
+        "subclass": "blade_master"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Ogni attacco fisico ha +20% chance di infliggere bleeding (perdita HP per turno)."
+    },
+    {
+      "id": "bm_decisive",
+      "name": "Colpo Decisivo",
+      "type": "physical",
+      "branch": "t2_blade_master",
+      "requirements": {
+        "subclass": "blade_master"
+      },
+      "cost": {
+        "STM": 50
+      },
+      "effect": "Attacco letale su nemici sotto il 30% HP. Danno = STR × 5.0."
+    },
+    {
+      "id": "acr_cascade",
+      "name": "Cascata",
+      "type": "physical",
+      "branch": "t2_acrobat",
+      "requirements": {
+        "subclass": "acrobat"
+      },
+      "cost": {
+        "STM": 20
+      },
+      "effect": "3 attacchi in volo da angoli diversi. Danno totale = AGI × 2.4."
+    },
+    {
+      "id": "acr_reposition",
+      "name": "Riposizionamento",
+      "type": "physical",
+      "branch": "t2_acrobat",
+      "requirements": {
+        "subclass": "acrobat"
+      },
+      "cost": {
+        "STM": 18
+      },
+      "effect": "Dopo una schivata, attacca immediatamente alle spalle. Danno = AGI × 2.0."
+    },
+    {
+      "id": "acr_wind_dance",
+      "name": "Danza del Vento",
+      "type": "buff",
+      "branch": "t2_acrobat",
+      "requirements": {
+        "subclass": "acrobat"
+      },
+      "cost": {
+        "STM": 15
+      },
+      "effect": "Per 2 turni ogni attacco mancato aumenta il danno successivo del 25% (stackable)."
+    },
+    {
+      "id": "acr_aerial",
+      "name": "Maestria Aerea",
+      "type": "passive",
+      "branch": "t2_acrobat",
+      "requirements": {
+        "subclass": "acrobat"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Gli attacchi eseguiti subito dopo una schivata infliggono +30% danno."
+    },
+    {
+      "id": "acr_free_flight",
+      "name": "Volo Libero",
+      "type": "special",
+      "branch": "t2_acrobat",
+      "requirements": {
+        "subclass": "acrobat"
+      },
+      "cost": {
+        "STM": 25
+      },
+      "effect": "1 turno di movimento aereo totale, immune agli attacchi a terra. Il prossimo attacco è garantito."
+    },
+    {
+      "id": "sha_hide",
+      "name": "Nascondersi",
+      "type": "movement",
+      "branch": "t2_shadow",
+      "requirements": {
+        "subclass": "shadow"
+      },
+      "cost": {
+        "STM": 20
+      },
+      "effect": "Entra in stealth per 2 turni. Il prossimo attacco dal stealth = danno × 3.0."
+    },
+    {
+      "id": "sha_lethal",
+      "name": "Colpo Letale",
+      "type": "physical",
+      "branch": "t2_shadow",
+      "requirements": {
+        "subclass": "shadow"
+      },
+      "cost": {
+        "STM": 25
+      },
+      "effect": "Attacco mirato a punto vitale. Danno = (AGI + LUC) × 2.5."
+    },
+    {
+      "id": "sha_shadow_step",
+      "name": "Passo d'Ombra",
+      "type": "movement",
+      "branch": "t2_shadow",
+      "requirements": {
+        "subclass": "shadow"
+      },
+      "cost": {
+        "MP": 10
+      },
+      "effect": "Teletrasporto istantaneo dietro il bersaglio, resettando l'agro nemica."
+    },
+    {
+      "id": "sha_predator",
+      "name": "Istinto del Predatore",
+      "type": "passive",
+      "branch": "t2_shadow",
+      "requirements": {
+        "subclass": "shadow"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Il primo attacco di ogni combattimento ha critico garantito."
+    },
+    {
+      "id": "sha_eva_kill",
+      "name": "Uccisione Evasiva",
+      "type": "physical",
+      "branch": "t2_shadow",
+      "requirements": {
+        "subclass": "shadow"
+      },
+      "cost": {
+        "STM": 22
+      },
+      "effect": "Esegue schivata e contrattacco simultaneamente. Danno = AGI × 1.8."
+    },
+    {
+      "id": "due_parry_riposte",
+      "name": "Parata-Riposte",
+      "type": "physical",
+      "branch": "t2_duelist",
+      "requirements": {
+        "subclass": "duelist"
+      },
+      "cost": {
+        "STM": 18
+      },
+      "effect": "Se la parata riesce, contrattacco immediato con danno × 2.5."
+    },
+    {
+      "id": "due_pressure",
+      "name": "Pressione della Lama",
+      "type": "passive",
+      "branch": "t2_duelist",
+      "requirements": {
+        "subclass": "duelist"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Ogni turno di combattimento prolungato +10% danno (max 5 stack)."
+    },
+    {
+      "id": "due_perfect_stance",
+      "name": "Postura Perfetta",
+      "type": "defensive",
+      "branch": "t2_duelist",
+      "requirements": {
+        "subclass": "duelist"
+      },
+      "cost": {
+        "STM": 20
+      },
+      "effect": "Per il prossimo turno tutte le azioni nemiche sono prevedibili (+50% schivata)."
+    },
+    {
+      "id": "due_riposte_chain",
+      "name": "Catena di Riposte",
+      "type": "physical",
+      "branch": "t2_duelist",
+      "requirements": {
+        "subclass": "duelist"
+      },
+      "cost": {
+        "STM": 30
+      },
+      "effect": "Concatena fino a 3 riposte consecutive se le parate riescono. Danno scala per ogni colpo."
+    },
+    {
+      "id": "due_disarm",
+      "name": "Disarmo",
+      "type": "debuff",
+      "branch": "t2_duelist",
+      "requirements": {
+        "subclass": "duelist"
+      },
+      "cost": {
+        "MP": 20
+      },
+      "effect": "Tenta di disarmare il nemico. Se riesce: -50% danno nemica per 2 turni (DEX vs DEX)."
+    },
+    {
+      "id": "ana_full",
+      "name": "Analisi Completa",
+      "type": "utility",
+      "branch": "t2_supreme_analyst",
+      "requirements": {
+        "subclass": "supreme_analyst"
+      },
+      "cost": {
+        "MP": 20
+      },
+      "effect": "Rivela TUTTO del nemico incluse le prossime 2 azioni previste."
+    },
+    {
+      "id": "ana_copy",
+      "name": "Copia Skill",
+      "type": "special",
+      "branch": "t2_supreme_analyst",
+      "requirements": {
+        "subclass": "supreme_analyst"
+      },
+      "cost": {
+        "MP": 35
+      },
+      "effect": "Dopo l'analisi, copia la skill attiva più forte del nemico (1 uso)."
+    },
+    {
+      "id": "ana_counter_build",
+      "name": "Contro-Build",
+      "type": "buff",
+      "branch": "t2_supreme_analyst",
+      "requirements": {
+        "subclass": "supreme_analyst"
+      },
+      "cost": {
+        "MP": 30
+      },
+      "effect": "Analizza debolezze e costruisce la tattica ottimale: +25% danno per il resto del combat."
+    },
+    {
+      "id": "ana_pattern",
+      "name": "Riconoscimento Pattern",
+      "type": "passive",
+      "branch": "t2_supreme_analyst",
+      "requirements": {
+        "subclass": "supreme_analyst"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Dopo 2 attacchi nemici osservati, schivata +20% per il resto del combat."
+    },
+    {
+      "id": "ana_exploit",
+      "name": "Sfruttamento",
+      "type": "passive",
+      "branch": "t2_supreme_analyst",
+      "requirements": {
+        "subclass": "supreme_analyst"
+      },
+      "cost": {},
+      "effect": "PASSIVA: I danni sulle debolezze nemiche sono moltiplicati ×2 anziché ×1.5."
+    },
+    {
+      "id": "man_poison",
+      "name": "Trama Velenosa",
+      "type": "debuff",
+      "branch": "t2_manipulator",
+      "requirements": {
+        "subclass": "manipulator"
+      },
+      "cost": {
+        "MP": 20
+      },
+      "effect": "Applica veleno: TEC × 0.5 danno per turno per 5 turni."
+    },
+    {
+      "id": "man_confusion",
+      "name": "Confusione",
+      "type": "debuff",
+      "branch": "t2_manipulator",
+      "requirements": {
+        "subclass": "manipulator"
+      },
+      "cost": {
+        "MP": 30
+      },
+      "effect": "40% di chance che il nemico attacchi sé stesso per 2 turni."
+    },
+    {
+      "id": "man_curse",
+      "name": "Maledizione del Campo",
+      "type": "debuff",
+      "branch": "t2_manipulator",
+      "requirements": {
+        "subclass": "manipulator"
+      },
+      "cost": {
+        "MP": 35
+      },
+      "effect": "Riduce TUTTE le stat nemiche del 15% per 3 turni."
+    },
+    {
+      "id": "man_debuff_amp",
+      "name": "Amplificazione Debuff",
+      "type": "passive",
+      "branch": "t2_manipulator",
+      "requirements": {
+        "subclass": "manipulator"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Tutti i debuff che applichi durano 1 turno aggiuntivo."
+    },
+    {
+      "id": "man_chain_status",
+      "name": "Catena di Status",
+      "type": "debuff",
+      "branch": "t2_manipulator",
+      "requirements": {
+        "subclass": "manipulator"
+      },
+      "cost": {
+        "MP": 45
+      },
+      "effect": "Applica simultaneamente veleno + stordimento + rallentamento."
+    },
+    {
+      "id": "art_construct",
+      "name": "Disponi Costrutto",
+      "type": "special",
+      "branch": "t2_artificer",
+      "requirements": {
+        "subclass": "artificer"
+      },
+      "cost": {
+        "MP": 40
+      },
+      "effect": "Crea un costrutto da combattimento (HP = VIT×5) che attacca ogni 2 turni."
+    },
+    {
+      "id": "art_trap",
+      "name": "Posa Trappola",
+      "type": "utility",
+      "branch": "t2_artificer",
+      "requirements": {
+        "subclass": "artificer"
+      },
+      "cost": {
+        "MP": 25
+      },
+      "effect": "Posa una trappola invisibile: infligge TEC × 3 danno al primo nemico che la calpesta."
+    },
+    {
+      "id": "art_barrier",
+      "name": "Campo Barriera",
+      "type": "defensive",
+      "branch": "t2_artificer",
+      "requirements": {
+        "subclass": "artificer"
+      },
+      "cost": {
+        "MP": 30
+      },
+      "effect": "Scudo energetico che assorbe i primi (50 + TEC×2) danni prima di cedere."
+    },
+    {
+      "id": "art_engineer",
+      "name": "Ingegnere",
+      "type": "passive",
+      "branch": "t2_artificer",
+      "requirements": {
+        "subclass": "artificer"
+      },
+      "cost": {},
+      "effect": "PASSIVA: I costrutti durano 1 turno aggiuntivo e hanno +25% HP."
+    },
+    {
+      "id": "art_overclock",
+      "name": "Overclocking",
+      "type": "buff",
+      "branch": "t2_artificer",
+      "requirements": {
+        "subclass": "artificer"
+      },
+      "cost": {
+        "STM": 20
+      },
+      "effect": "Potenzia il costrutto attivo per 2 turni: +100% danno."
+    },
+    {
+      "id": "sov_aura",
+      "name": "Aura del Sovereigno",
+      "type": "buff",
+      "branch": "t2_sovereign",
+      "requirements": {
+        "subclass": "sovereign"
+      },
+      "cost": {
+        "MP": 30
+      },
+      "effect": "+10% a tutte le stat per 3 turni."
+    },
+    {
+      "id": "sov_adaptive",
+      "name": "Combattimento Adattivo",
+      "type": "special",
+      "branch": "t2_sovereign",
+      "requirements": {
+        "subclass": "sovereign"
+      },
+      "cost": {
+        "MP": 25
+      },
+      "effect": "Copia e usa lo stile di combattimento del nemico per 1 turno."
+    },
+    {
+      "id": "sov_balanced",
+      "name": "Colpo Bilanciato",
+      "type": "physical",
+      "branch": "t2_sovereign",
+      "requirements": {
+        "subclass": "sovereign"
+      },
+      "cost": {
+        "STM": 25
+      },
+      "effect": "Usa la media di STR+DEX+AGI come base danno × 2.0."
+    },
+    {
+      "id": "sov_versatile",
+      "name": "Versatilità",
+      "type": "passive",
+      "branch": "t2_sovereign",
+      "requirements": {
+        "subclass": "sovereign"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Nessuna penalità nell'equipaggiare qualsiasi tipo di arma o armatura."
+    },
+    {
+      "id": "sov_will",
+      "name": "Volontà del Sovereigno",
+      "type": "special",
+      "branch": "t2_sovereign",
+      "requirements": {
+        "subclass": "sovereign"
+      },
+      "cost": {
+        "MP": 20
+      },
+      "effect": "Annulla il prossimo effetto di stato negativo e lo converte in +15% danno."
+    },
+    {
+      "id": "wg_state",
+      "name": "Stato del Dio della Guerra",
+      "type": "buff",
+      "branch": "t3_war_god",
+      "requirements": {
+        "advanced_class": "war_god"
+      },
+      "cost": {
+        "STM": 50
+      },
+      "effect": "STR raddoppiata per 3 turni. Immune alla morte 1 volta durante il buff."
+    },
+    {
+      "id": "wg_divine_rampage",
+      "name": "Rampaggio Divino",
+      "type": "physical",
+      "branch": "t3_war_god",
+      "requirements": {
+        "advanced_class": "war_god"
+      },
+      "cost": {
+        "STM": 60
+      },
+      "effect": "10 colpi casuali devastanti. Danno totale = STR × 15.0."
+    },
+    {
+      "id": "wg_death_defiance",
+      "name": "Sfida alla Morte",
+      "type": "passive",
+      "branch": "t3_war_god",
+      "requirements": {
+        "advanced_class": "war_god"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Se un colpo ti ucciderebbe, rimani a 1 HP con STR triplicata per quel turno (1×/combat)."
+    },
+    {
+      "id": "wg_annihilation",
+      "name": "Annientamento",
+      "type": "physical",
+      "branch": "t3_war_god",
+      "requirements": {
+        "advanced_class": "war_god"
+      },
+      "cost": {
+        "STM": 70
+      },
+      "effect": "Colpo supremo utilizzabile solo in stato berserk. Danno = STR × 8.0."
+    },
+    {
+      "id": "br_blood_feast",
+      "name": "Banchetto di Sangue",
+      "type": "passive",
+      "branch": "t3_blood_reaper",
+      "requirements": {
+        "advanced_class": "blood_reaper"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Il 15% di ogni danno inflitto viene recuperato come HP."
+    },
+    {
+      "id": "br_hemorrhage",
+      "name": "Emorragia",
+      "type": "debuff",
+      "branch": "t3_blood_reaper",
+      "requirements": {
+        "advanced_class": "blood_reaper"
+      },
+      "cost": {
+        "MP": 25
+      },
+      "effect": "Applica emorragia grave: TEC × 1.5 danno per turno per 5 turni."
+    },
+    {
+      "id": "br_sanguine",
+      "name": "Furia Sanguinaria",
+      "type": "passive",
+      "branch": "t3_blood_reaper",
+      "requirements": {
+        "advanced_class": "blood_reaper"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Per ogni 10% HP perso, +8% danno inferto (scalabile, max +60%)."
+    },
+    {
+      "id": "br_crimson_tide",
+      "name": "Marea Cremisi",
+      "type": "physical",
+      "branch": "t3_blood_reaper",
+      "requirements": {
+        "advanced_class": "blood_reaper"
+      },
+      "cost": {
+        "STM": 40
+      },
+      "effect": "Attacco AoE che applica emorragia a tutti i nemici vicini."
+    },
+    {
+      "id": "lf_abs_wall",
+      "name": "Muro Assoluto",
+      "type": "defensive",
+      "branch": "t3_living_fortress",
+      "requirements": {
+        "advanced_class": "living_fortress"
+      },
+      "cost": {
+        "STM": 50
+      },
+      "effect": "Immune a tutti i danni per 1 turno."
+    },
+    {
+      "id": "lf_thorns",
+      "name": "Spine",
+      "type": "special",
+      "branch": "t3_living_fortress",
+      "requirements": {
+        "advanced_class": "living_fortress"
+      },
+      "cost": {
+        "MP": 35
+      },
+      "effect": "Riflette il 60% di TUTTI i danni subiti al nemico per 3 turni."
+    },
+    {
+      "id": "lf_titan",
+      "name": "Postura del Titano",
+      "type": "buff",
+      "branch": "t3_living_fortress",
+      "requirements": {
+        "advanced_class": "living_fortress"
+      },
+      "cost": {
+        "STM": 40
+      },
+      "effect": "VIT ×2. Ogni attacco nemico carica un contatore; a 5 stack, contrattacco AoE devastante."
+    },
+    {
+      "id": "lf_immortal",
+      "name": "Immortalità",
+      "type": "passive",
+      "branch": "t3_living_fortress",
+      "requirements": {
+        "advanced_class": "living_fortress"
+      },
+      "cost": {},
+      "effect": "PASSIVA: L'HP non può scendere sotto 1 finché STM > 0."
+    },
+    {
+      "id": "ic_iron_counter",
+      "name": "Contro di Ferro",
+      "type": "physical",
+      "branch": "t3_iron_champion",
+      "requirements": {
+        "advanced_class": "iron_champion"
+      },
+      "cost": {
+        "STM": 30
+      },
+      "effect": "Parata perfetta che riflette il 100% del danno ricevuto."
+    },
+    {
+      "id": "ic_fortress_charge",
+      "name": "Carica Fortezza",
+      "type": "physical",
+      "branch": "t3_iron_champion",
+      "requirements": {
+        "advanced_class": "iron_champion"
+      },
+      "cost": {
+        "STM": 35
+      },
+      "effect": "Carica in avanzamento assorbendo il danno in movimento. Danno = STR × 2.5."
+    },
+    {
+      "id": "ic_unbreakable",
+      "name": "Indissolubile",
+      "type": "defensive",
+      "branch": "t3_iron_champion",
+      "requirements": {
+        "advanced_class": "iron_champion"
+      },
+      "cost": {
+        "MP": 30
+      },
+      "effect": "Per 2 turni nessun singolo colpo può ridurre HP di più del 20% del massimo."
+    },
+    {
+      "id": "ic_war_veteran",
+      "name": "Veterano di Guerra",
+      "type": "passive",
+      "branch": "t3_iron_champion",
+      "requirements": {
+        "advanced_class": "iron_champion"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Ogni combat vinto aumenta VIT permanentemente di +1 (max +20 bonus totale)."
+    },
+    {
+      "id": "ss_spirit",
+      "name": "Spirito della Spada",
+      "type": "physical",
+      "branch": "t3_sword_saint",
+      "requirements": {
+        "advanced_class": "sword_saint"
+      },
+      "cost": {
+        "STM": 60
+      },
+      "effect": "Carica 1 turno poi colpo = STR × 10. Uccide istantaneamente nemici sotto il 50% HP."
+    },
+    {
+      "id": "ss_void_cut",
+      "name": "Taglio del Vuoto",
+      "type": "physical",
+      "branch": "t3_sword_saint",
+      "requirements": {
+        "advanced_class": "sword_saint"
+      },
+      "cost": {
+        "STM": 40
+      },
+      "effect": "Ignora completamente tutti i modificatori difensivi. Danno = STR × 4.0."
+    },
+    {
+      "id": "ss_mastery",
+      "name": "Maestria della Spada",
+      "type": "passive",
+      "branch": "t3_sword_saint",
+      "requirements": {
+        "advanced_class": "sword_saint"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Ogni vittoria con arma a lama +1 STR permanente (max +15 bonus totale)."
+    },
+    {
+      "id": "ss_final_cut",
+      "name": "Taglio Finale",
+      "type": "physical",
+      "branch": "t3_sword_saint",
+      "requirements": {
+        "advanced_class": "sword_saint"
+      },
+      "cost": {
+        "STM": 80
+      },
+      "effect": "Uso singolo per battaglia. Danno garantito = HP nemico corrente × 0.5."
+    },
+    {
+      "id": "db_twin_draw",
+      "name": "Estrazione Doppia",
+      "type": "physical",
+      "branch": "t3_dual_blade",
+      "requirements": {
+        "advanced_class": "dual_blade"
+      },
+      "cost": {
+        "STM": 25
+      },
+      "effect": "Doppio attacco simultaneo con le due lame. Danno totale = STR × 3.0."
+    },
+    {
+      "id": "db_hurricane",
+      "name": "Lame Uragano",
+      "type": "physical",
+      "branch": "t3_dual_blade",
+      "requirements": {
+        "advanced_class": "dual_blade"
+      },
+      "cost": {
+        "STM": 45
+      },
+      "effect": "8 colpi alternati tra le 2 lame. Danno totale = (STR + DEX) × 4.8."
+    },
+    {
+      "id": "db_dual_flow",
+      "name": "Flusso Doppio",
+      "type": "passive",
+      "branch": "t3_dual_blade",
+      "requirements": {
+        "advanced_class": "dual_blade"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Usare 2 skill nello stesso turno non consuma il costo della seconda."
+    },
+    {
+      "id": "db_final_dance",
+      "name": "Danza Finale",
+      "type": "physical",
+      "branch": "t3_dual_blade",
+      "requirements": {
+        "advanced_class": "dual_blade"
+      },
+      "cost": {
+        "STM": 55
+      },
+      "effect": "Sequenza di 6 colpi crescenti che culmina in un attacco = STR × 6.0."
+    },
+    {
+      "id": "sd_inf_cascade",
+      "name": "Cascata Infinita",
+      "type": "physical",
+      "branch": "t3_sky_dancer",
+      "requirements": {
+        "advanced_class": "sky_dancer"
+      },
+      "cost": {
+        "STM": 45
+      },
+      "effect": "Cascata potenziata: 6 hit in aria, ogni hit +15% danno rispetto al precedente."
+    },
+    {
+      "id": "sd_sky_domain",
+      "name": "Dominio del Cielo",
+      "type": "buff",
+      "branch": "t3_sky_dancer",
+      "requirements": {
+        "advanced_class": "sky_dancer"
+      },
+      "cost": {
+        "STM": 40
+      },
+      "effect": "3 turni di combat aereo totale, immune agli attacchi a terra. Ogni attacco = AGI × 2.0."
+    },
+    {
+      "id": "sd_aerial_fin",
+      "name": "Finalizzatore Aereo",
+      "type": "physical",
+      "branch": "t3_sky_dancer",
+      "requirements": {
+        "advanced_class": "sky_dancer"
+      },
+      "cost": {
+        "STM": 50
+      },
+      "effect": "Attacco in picchiata dalla massima altitudine. Danno = AGI × 5.0."
+    },
+    {
+      "id": "sd_wind_body",
+      "name": "Corpo del Vento",
+      "type": "passive",
+      "branch": "t3_sky_dancer",
+      "requirements": {
+        "advanced_class": "sky_dancer"
+      },
+      "cost": {},
+      "effect": "PASSIVA: In aria, schivata +40% e velocità attacco raddoppiata."
+    },
+    {
+      "id": "tmp_whirlwind",
+      "name": "Turbine",
+      "type": "physical",
+      "branch": "t3_tempest",
+      "requirements": {
+        "advanced_class": "tempest"
+      },
+      "cost": {
+        "STM": 35
+      },
+      "effect": "Rotazione vorticosa con attacchi multipli AoE. Danno = AGI × 1.2 a tutti i nemici vicini."
+    },
+    {
+      "id": "tmp_storm_path",
+      "name": "Sentiero della Tempesta",
+      "type": "physical",
+      "branch": "t3_tempest",
+      "requirements": {
+        "advanced_class": "tempest"
+      },
+      "cost": {
+        "STM": 30
+      },
+      "effect": "Movimento in linea retta colpendo tutto sul percorso. Danno = AGI × 2.5."
+    },
+    {
+      "id": "tmp_cyclone",
+      "name": "Colpo Ciclone",
+      "type": "physical",
+      "branch": "t3_tempest",
+      "requirements": {
+        "advanced_class": "tempest"
+      },
+      "cost": {
+        "STM": 50
+      },
+      "effect": "AoE devastante centrato sul giocatore. Danno = AGI × 3.0 a tutti i nemici."
+    },
+    {
+      "id": "tmp_motion_kill",
+      "name": "Uccisione in Movimento",
+      "type": "passive",
+      "branch": "t3_tempest",
+      "requirements": {
+        "advanced_class": "tempest"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Ogni schivata riuscita accumula +10% danno al prossimo attacco (max 5 stack)."
+    },
+    {
+      "id": "ap_stealth",
+      "name": "Stealth Perfetto",
+      "type": "movement",
+      "branch": "t3_absolute_phantom",
+      "requirements": {
+        "advanced_class": "absolute_phantom"
+      },
+      "cost": {
+        "STM": 5
+      },
+      "effect": "Invisibilità assoluta finché non si attacca. Costo 5 STM/turno."
+    },
+    {
+      "id": "ap_vanish_kill",
+      "name": "Uccisione Sparizione",
+      "type": "physical",
+      "branch": "t3_absolute_phantom",
+      "requirements": {
+        "advanced_class": "absolute_phantom"
+      },
+      "cost": {
+        "STM": 35
+      },
+      "effect": "Attacca e diventa immediatamente invisibile. Danno = (AGI + LUC) × 3.0."
+    },
+    {
+      "id": "ap_ghost_walk",
+      "name": "Camminata Fantasma",
+      "type": "passive",
+      "branch": "t3_absolute_phantom",
+      "requirements": {
+        "advanced_class": "absolute_phantom"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Non puoi essere bersaglio di attacchi mentre ti muovi."
+    },
+    {
+      "id": "ap_death_sentence",
+      "name": "Sentenza di Morte",
+      "type": "special",
+      "branch": "t3_absolute_phantom",
+      "requirements": {
+        "advanced_class": "absolute_phantom"
+      },
+      "cost": {
+        "MP": 40
+      },
+      "effect": "Marca un nemico. Se non viene eliminato in 3 turni, subisce il 60% del suo HP max come danno."
+    },
+    {
+      "id": "ib_shadow_clone",
+      "name": "Clone d'Ombra",
+      "type": "special",
+      "branch": "t3_illusory_blade",
+      "requirements": {
+        "advanced_class": "illusory_blade"
+      },
+      "cost": {
+        "MP": 30
+      },
+      "effect": "Crea 2 copie illusorie che attaccano casualmente. Danno per clone = AGI × 1.2."
+    },
+    {
+      "id": "ib_mirage_strike",
+      "name": "Colpo Miraggio",
+      "type": "physical",
+      "branch": "t3_illusory_blade",
+      "requirements": {
+        "advanced_class": "illusory_blade"
+      },
+      "cost": {
+        "STM": 30
+      },
+      "effect": "3 attacchi simultanei da direzioni diverse. Il nemico non sa quale parare."
+    },
+    {
+      "id": "ib_phantom_army",
+      "name": "Esercito Fantasma",
+      "type": "special",
+      "branch": "t3_illusory_blade",
+      "requirements": {
+        "advanced_class": "illusory_blade"
+      },
+      "cost": {
+        "MP": 50
+      },
+      "effect": "5 copie illusorie per 2 turni. Il nemico attacca a caso tra esse."
+    },
+    {
+      "id": "ib_echo",
+      "name": "Eco",
+      "type": "passive",
+      "branch": "t3_illusory_blade",
+      "requirements": {
+        "advanced_class": "illusory_blade"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Il 20% degli attacchi viene automaticamente duplicato da un clone fantasma."
+    },
+    {
+      "id": "mf_perfect_parry",
+      "name": "Parata Impeccabile",
+      "type": "physical",
+      "branch": "t3_master_fencer",
+      "requirements": {
+        "advanced_class": "master_fencer"
+      },
+      "cost": {
+        "STM": 15
+      },
+      "effect": "Parata istantanea contro qualsiasi attacco. Contrattacco = danno assorbito × 2."
+    },
+    {
+      "id": "mf_riposte_storm",
+      "name": "Tempesta di Riposte",
+      "type": "physical",
+      "branch": "t3_master_fencer",
+      "requirements": {
+        "advanced_class": "master_fencer"
+      },
+      "cost": {
+        "STM": 40
+      },
+      "effect": "Finché para, contrattacca ogni colpo consecutivo fino a 5 volte."
+    },
+    {
+      "id": "mf_blade_waltz",
+      "name": "Valzer della Lama",
+      "type": "physical",
+      "branch": "t3_master_fencer",
+      "requirements": {
+        "advanced_class": "master_fencer"
+      },
+      "cost": {
+        "STM": 45
+      },
+      "effect": "Sequenza di 4 attacchi e 4 schivate alternate. Danno totale = DEX × 4.0."
+    },
+    {
+      "id": "mf_counter_king",
+      "name": "Re del Contro",
+      "type": "passive",
+      "branch": "t3_master_fencer",
+      "requirements": {
+        "advanced_class": "master_fencer"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Ogni parata riuscita incrementa DEX di +2 per il turno corrente."
+    },
+    {
+      "id": "ec_victory_streak",
+      "name": "Serie di Vittorie",
+      "type": "passive",
+      "branch": "t3_eternal_champion",
+      "requirements": {
+        "advanced_class": "eternal_champion"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Ogni nemico sconfitto in questa sessione +5% danno cumulativo."
+    },
+    {
+      "id": "ec_champion_blow",
+      "name": "Colpo del Campione",
+      "type": "physical",
+      "branch": "t3_eternal_champion",
+      "requirements": {
+        "advanced_class": "eternal_champion"
+      },
+      "cost": {
+        "STM": 35
+      },
+      "effect": "Più dura il combattimento, più il danno cresce. Al 5° turno = DEX × 5.0."
+    },
+    {
+      "id": "ec_undying_will",
+      "name": "Volontà Eterna",
+      "type": "passive",
+      "branch": "t3_eternal_champion",
+      "requirements": {
+        "advanced_class": "eternal_champion"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Non puoi essere sconfitto finché non hai perso 3 combattimenti consecutivi."
+    },
+    {
+      "id": "ec_legendary_duel",
+      "name": "Duello Leggendario",
+      "type": "special",
+      "branch": "t3_eternal_champion",
+      "requirements": {
+        "advanced_class": "eternal_champion"
+      },
+      "cost": {
+        "STM": 50
+      },
+      "effect": "Sfida il nemico in duello puro 1v1. Per la durata nessun effetto esterno agisce."
+    },
+    {
+      "id": "om_skill_theft",
+      "name": "Furto di Skill",
+      "type": "special",
+      "branch": "t3_override_master",
+      "requirements": {
+        "advanced_class": "override_master"
+      },
+      "cost": {
+        "MP": 45
+      },
+      "effect": "Copia E rimuove temporaneamente la skill più forte del nemico per 3 turni."
+    },
+    {
+      "id": "om_mirror_fight",
+      "name": "Combattimento Specchio",
+      "type": "special",
+      "branch": "t3_override_master",
+      "requirements": {
+        "advanced_class": "override_master"
+      },
+      "cost": {
+        "MP": 35
+      },
+      "effect": "Usa esattamente le stat del nemico come proprie per 1 turno."
+    },
+    {
+      "id": "om_adaptation",
+      "name": "Adattamento",
+      "type": "passive",
+      "branch": "t3_override_master",
+      "requirements": {
+        "advanced_class": "override_master"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Ogni skill nemica usata contro di te viene registrata (-10% danno futuro da essa)."
+    },
+    {
+      "id": "om_total_override",
+      "name": "Override Totale",
+      "type": "special",
+      "branch": "t3_override_master",
+      "requirements": {
+        "advanced_class": "override_master"
+      },
+      "cost": {
+        "MP": 60
+      },
+      "effect": "Prende il controllo completo di un nemico non-boss per 2 turni."
+    },
+    {
+      "id": "pt_formula",
+      "name": "Formula di Combattimento",
+      "type": "utility",
+      "branch": "t3_precision_tactician",
+      "requirements": {
+        "advanced_class": "precision_tactician"
+      },
+      "cost": {
+        "MP": 25
+      },
+      "effect": "Calcola il danno ottimale dall'analisi. Danno = TEC × analisi% × 2.0."
+    },
+    {
+      "id": "pt_pressure_point",
+      "name": "Punto di Pressione",
+      "type": "physical",
+      "branch": "t3_precision_tactician",
+      "requirements": {
+        "advanced_class": "precision_tactician"
+      },
+      "cost": {
+        "MP": 30
+      },
+      "effect": "Attacco sul punto debole rivelato dall'analisi. Danno normale × 4."
+    },
+    {
+      "id": "pt_tactical_genius",
+      "name": "Genio Tattico",
+      "type": "passive",
+      "branch": "t3_precision_tactician",
+      "requirements": {
+        "advanced_class": "precision_tactician"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Per ogni turno di analisi/osservazione, il danno successivo +20%."
+    },
+    {
+      "id": "pt_inevitable_end",
+      "name": "Fine Inevitabile",
+      "type": "special",
+      "branch": "t3_precision_tactician",
+      "requirements": {
+        "advanced_class": "precision_tactician"
+      },
+      "cost": {
+        "MP": 50
+      },
+      "effect": "Calcola e auto-esegue la sequenza di 3 attacchi ottimale contro il nemico analizzato."
+    },
+    {
+      "id": "cw_curse_weave",
+      "name": "Trama Maledetta",
+      "type": "debuff",
+      "branch": "t3_curse_weaver",
+      "requirements": {
+        "advanced_class": "curse_weaver"
+      },
+      "cost": {
+        "MP": 40
+      },
+      "effect": "Applica simultaneamente veleno + bruciatura + sanguinamento."
+    },
+    {
+      "id": "cw_curse_amplify",
+      "name": "Amplifica Maledizione",
+      "type": "debuff",
+      "branch": "t3_curse_weaver",
+      "requirements": {
+        "advanced_class": "curse_weaver"
+      },
+      "cost": {
+        "MP": 30
+      },
+      "effect": "Raddoppia i danni di tutti gli effetti di stato attivi sul nemico."
+    },
+    {
+      "id": "cw_doom",
+      "name": "Fatalità",
+      "type": "passive",
+      "branch": "t3_curse_weaver",
+      "requirements": {
+        "advanced_class": "curse_weaver"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Se il nemico ha 3+ status negativi, ogni colpo ha 20% chance di stordimento."
+    },
+    {
+      "id": "cw_final_curse",
+      "name": "Maledizione Finale",
+      "type": "special",
+      "branch": "t3_curse_weaver",
+      "requirements": {
+        "advanced_class": "curse_weaver"
+      },
+      "cost": {
+        "MP": 50
+      },
+      "effect": "Nemico maledetto: se muore in questo stato, esplode infliggendo 40% HP max ai nemici vicini."
+    },
+    {
+      "id": "dom_puppet",
+      "name": "Maestro dei Burattini",
+      "type": "special",
+      "branch": "t3_dominator",
+      "requirements": {
+        "advanced_class": "dominator"
+      },
+      "cost": {
+        "MP": 40
+      },
+      "effect": "Il nemico attacca il suo alleato più vicino per 1 turno."
+    },
+    {
+      "id": "dom_mind_break",
+      "name": "Rottura Mentale",
+      "type": "debuff",
+      "branch": "t3_dominator",
+      "requirements": {
+        "advanced_class": "dominator"
+      },
+      "cost": {
+        "MP": 45
+      },
+      "effect": "Riduce permanentemente STR e DEX nemici del 20% per l'intera battaglia."
+    },
+    {
+      "id": "dom_domination",
+      "name": "Dominazione",
+      "type": "passive",
+      "branch": "t3_dominator",
+      "requirements": {
+        "advanced_class": "dominator"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Nemici con 3+ debuff hanno -30% precisione."
+    },
+    {
+      "id": "dom_abs_control",
+      "name": "Controllo Assoluto",
+      "type": "special",
+      "branch": "t3_dominator",
+      "requirements": {
+        "advanced_class": "dominator"
+      },
+      "cost": {
+        "MP": 70
+      },
+      "effect": "Controlla completamente il nemico per 3 turni (funziona su tutti tranne boss veri)."
+    },
+    {
+      "id": "cm_master",
+      "name": "Costrutto Maestro",
+      "type": "special",
+      "branch": "t3_construct_master",
+      "requirements": {
+        "advanced_class": "construct_master"
+      },
+      "cost": {
+        "MP": 55
+      },
+      "effect": "Costrutto avanzato (HP = VIT×10) che attacca ogni turno. Danno = TEC × 1.8."
+    },
+    {
+      "id": "cm_dual",
+      "name": "Costrutti Doppi",
+      "type": "special",
+      "branch": "t3_construct_master",
+      "requirements": {
+        "advanced_class": "construct_master"
+      },
+      "cost": {
+        "MP": 70
+      },
+      "effect": "Schiera 2 costrutti contemporaneamente, entrambi operativi."
+    },
+    {
+      "id": "cm_link",
+      "name": "Link Costrutto",
+      "type": "passive",
+      "branch": "t3_construct_master",
+      "requirements": {
+        "advanced_class": "construct_master"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Quando il costrutto attacca, anche il giocatore attacca alla metà del danno."
+    },
+    {
+      "id": "cm_omega",
+      "name": "Costrutto Omega",
+      "type": "special",
+      "branch": "t3_construct_master",
+      "requirements": {
+        "advanced_class": "construct_master"
+      },
+      "cost": {
+        "MP": 80
+      },
+      "effect": "Versione definitiva del costrutto: HP raddoppiati, attacca 2 volte per turno."
+    },
+    {
+      "id": "ts_network",
+      "name": "Rete di Trappole",
+      "type": "utility",
+      "branch": "t3_trap_specialist",
+      "requirements": {
+        "advanced_class": "trap_specialist"
+      },
+      "cost": {
+        "MP": 45
+      },
+      "effect": "Posa istantaneamente 3 trappole. Ciascuna: TEC × 2 danno."
+    },
+    {
+      "id": "ts_explosive",
+      "name": "Trappola Esplosiva",
+      "type": "special",
+      "branch": "t3_trap_specialist",
+      "requirements": {
+        "advanced_class": "trap_specialist"
+      },
+      "cost": {
+        "MP": 35
+      },
+      "effect": "Trappola con esplosione AoE. Danno = TEC × 4 in area."
+    },
+    {
+      "id": "ts_trap_master",
+      "name": "Maestro delle Trappole",
+      "type": "passive",
+      "branch": "t3_trap_specialist",
+      "requirements": {
+        "advanced_class": "trap_specialist"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Il nemico non può evitare le trappole con AGI o movimento."
+    },
+    {
+      "id": "ts_labyrinth",
+      "name": "Labirinto di Trappole",
+      "type": "special",
+      "branch": "t3_trap_specialist",
+      "requirements": {
+        "advanced_class": "trap_specialist"
+      },
+      "cost": {
+        "MP": 60
+      },
+      "effect": "L'intera zona diventa una trappola: ogni movimento nemica causa danno = TEC × 1.5."
+    },
+    {
+      "id": "wr_authority",
+      "name": "Autorità del Mondo",
+      "type": "buff",
+      "branch": "t3_world_ruler",
+      "requirements": {
+        "advanced_class": "world_ruler"
+      },
+      "cost": {
+        "MP": 50
+      },
+      "effect": "+20% a tutte le stat per 5 turni."
+    },
+    {
+      "id": "wr_omni",
+      "name": "Colpo Omni",
+      "type": "physical",
+      "branch": "t3_world_ruler",
+      "requirements": {
+        "advanced_class": "world_ruler"
+      },
+      "cost": {
+        "STM": 40
+      },
+      "effect": "Usa STR+DEX+AGI+TEC come base. Danno = media delle 4 stat × 3.0."
+    },
+    {
+      "id": "wr_sov_growth",
+      "name": "Crescita Sovereigna",
+      "type": "passive",
+      "branch": "t3_world_ruler",
+      "requirements": {
+        "advanced_class": "world_ruler"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Ogni level up dà +1 a tutte le stat invece dei normali +3 stat a scelta."
+    },
+    {
+      "id": "wr_world_order",
+      "name": "Ordine del Mondo",
+      "type": "debuff",
+      "branch": "t3_world_ruler",
+      "requirements": {
+        "advanced_class": "world_ruler"
+      },
+      "cost": {
+        "MP": 60
+      },
+      "effect": "Dimezza tutte le stat del nemico per 2 turni."
+    },
+    {
+      "id": "ll_legend_aura",
+      "name": "Aura della Leggenda",
+      "type": "special",
+      "branch": "t3_living_legend",
+      "requirements": {
+        "advanced_class": "living_legend"
+      },
+      "cost": {
+        "MP": 35
+      },
+      "effect": "I nemici di tier inferiore non attaccano per 2 turni (timore reverenziale)."
+    },
+    {
+      "id": "ll_heroic_tale",
+      "name": "Racconto Eroico",
+      "type": "passive",
+      "branch": "t3_living_legend",
+      "requirements": {
+        "advanced_class": "living_legend"
+      },
+      "cost": {},
+      "effect": "PASSIVA: +1% danno per ogni titolo ottenuto (stacking illimitato)."
+    },
+    {
+      "id": "ll_legendary",
+      "name": "Leggendario",
+      "type": "passive",
+      "branch": "t3_living_legend",
+      "requirements": {
+        "advanced_class": "living_legend"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Accesso garantito a tutti gli scenari Unique di tier SS e SS+."
+    },
+    {
+      "id": "ll_epoch_ending",
+      "name": "Fine dell'Era",
+      "type": "physical",
+      "branch": "t3_living_legend",
+      "requirements": {
+        "advanced_class": "living_legend"
+      },
+      "cost": {
+        "STM": 80
+      },
+      "effect": "Colpo supremo assoluto. Danno = (titoli ottenuti × 20) + (Livello × 30)."
+    },
+    {
+      "id": "sp_cura_leggera",
+      "name": "Cura Leggera",
+      "type": "healing",
+      "branch": "sacerdote_base",
+      "requirements": {
+        "job": "Sacerdote"
+      },
+      "cost": {
+        "MP": 15
+      },
+      "effect": "Ripristina 30 HP."
+    },
+    {
+      "id": "sp_luce_sacra",
+      "name": "Luce Sacra",
+      "type": "magical",
+      "branch": "sacerdote_base",
+      "requirements": {
+        "job": "Sacerdote"
+      },
+      "cost": {
+        "MP": 20
+      },
+      "effect": "Danno sacro al nemico. Danno = TEC × 2.0. Efficace contro non-morti."
+    },
+    {
+      "id": "sp_benedizione",
+      "name": "Benedizione",
+      "type": "buff",
+      "branch": "sacerdote_base",
+      "requirements": {
+        "job": "Sacerdote"
+      },
+      "cost": {
+        "MP": 25
+      },
+      "effect": "BUFF: +10% a tutte le stat per 3 turni."
+    },
+    {
+      "id": "sp_analisi_spirituale",
+      "name": "Analisi Spirituale",
+      "type": "utility",
+      "branch": "sacerdote_base",
+      "requirements": {
+        "job": "Sacerdote"
+      },
+      "cost": {
+        "MP": 10
+      },
+      "effect": "Rivela debolezze spirituali e stati nascosti del nemico. Più precisa su entità magiche."
+    },
+    {
+      "id": "gua_cura_maggiore",
+      "name": "Cura Maggiore",
+      "type": "healing",
+      "branch": "t2_guaritore",
+      "requirements": {
+        "subclass": "guaritore"
+      },
+      "cost": {
+        "MP": 30
+      },
+      "effect": "Ripristina 80 HP."
+    },
+    {
+      "id": "gua_rigenerazione",
+      "name": "Rigenerazione",
+      "type": "healing",
+      "branch": "t2_guaritore",
+      "requirements": {
+        "subclass": "guaritore"
+      },
+      "cost": {
+        "MP": 35
+      },
+      "effect": "BUFF: +15 HP per turno per 5 turni (totale 75 HP)."
+    },
+    {
+      "id": "gua_purificazione",
+      "name": "Purificazione",
+      "type": "utility",
+      "branch": "t2_guaritore",
+      "requirements": {
+        "subclass": "guaritore"
+      },
+      "cost": {
+        "MP": 20
+      },
+      "effect": "Rimuove tutti gli stati negativi attivi (veleno, stordimento, maledizioni)."
+    },
+    {
+      "id": "gua_barriera_sacra",
+      "name": "Barriera Sacra",
+      "type": "defensive",
+      "branch": "t2_guaritore",
+      "requirements": {
+        "subclass": "guaritore"
+      },
+      "cost": {
+        "MP": 40
+      },
+      "effect": "BUFF: Riduce i danni subiti del 30% per 3 turni."
+    },
+    {
+      "id": "gua_empatia_divina",
+      "name": "Empatia Divina",
+      "type": "passive",
+      "branch": "t2_guaritore",
+      "requirements": {
+        "subclass": "guaritore"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Ogni skill di cura usata ripristina anche il 20% dell'importo come MP."
+    },
+    {
+      "id": "eso_lampo_sacro",
+      "name": "Lampo Sacro",
+      "type": "magical",
+      "branch": "t2_esorcista",
+      "requirements": {
+        "subclass": "esorcista"
+      },
+      "cost": {
+        "MP": 25
+      },
+      "effect": "Danno sacro pesante. Danno = TEC × 3.0. Ignora il 20% di resistenza."
+    },
+    {
+      "id": "eso_catene_luce",
+      "name": "Catene della Luce",
+      "type": "magical",
+      "branch": "t2_esorcista",
+      "requirements": {
+        "subclass": "esorcista"
+      },
+      "cost": {
+        "MP": 30
+      },
+      "effect": "Immobilizza il nemico per 2 turni."
+    },
+    {
+      "id": "eso_esorcismo",
+      "name": "Esorcismo",
+      "type": "magical",
+      "branch": "t2_esorcista",
+      "requirements": {
+        "subclass": "esorcista"
+      },
+      "cost": {
+        "MP": 45
+      },
+      "effect": "Danno massiccio contro non-morti, demoni ed entità spirituali: danno × 3.0. Su nemici normali: danno × 1.0."
+    },
+    {
+      "id": "eso_aura_purificante",
+      "name": "Aura Purificante",
+      "type": "passive",
+      "branch": "t2_esorcista",
+      "requirements": {
+        "subclass": "esorcista"
+      },
+      "cost": {},
+      "effect": "PASSIVA: I nemici subiscono 5 danno sacro per turno automaticamente."
+    },
+    {
+      "id": "eso_sigillo",
+      "name": "Sigillo d'Esorcismo",
+      "type": "magical",
+      "branch": "t2_esorcista",
+      "requirements": {
+        "subclass": "esorcista"
+      },
+      "cost": {
+        "MP": 20
+      },
+      "effect": "Marchio sul nemico: i danni sacri successivi sono amplificati del 25% per 4 turni."
+    },
+    {
+      "id": "ora_profezia",
+      "name": "Profezia",
+      "type": "utility",
+      "branch": "t2_oracolo",
+      "requirements": {
+        "subclass": "oracolo"
+      },
+      "cost": {
+        "MP": 15
+      },
+      "effect": "Rivela l'azione del nemico nel prossimo turno."
+    },
+    {
+      "id": "ora_fortuna_condivisa",
+      "name": "Fortuna Condivisa",
+      "type": "buff",
+      "branch": "t2_oracolo",
+      "requirements": {
+        "subclass": "oracolo"
+      },
+      "cost": {
+        "MP": 20
+      },
+      "effect": "BUFF: +10 LUC temporanea per 3 turni."
+    },
+    {
+      "id": "ora_visione_futuro",
+      "name": "Visione del Futuro",
+      "type": "buff",
+      "branch": "t2_oracolo",
+      "requirements": {
+        "subclass": "oracolo"
+      },
+      "cost": {
+        "MP": 35
+      },
+      "effect": "BUFF: +30% probabilità critico per 4 turni."
+    },
+    {
+      "id": "ora_sfortuna",
+      "name": "Sfortuna del Nemico",
+      "type": "magical",
+      "branch": "t2_oracolo",
+      "requirements": {
+        "subclass": "oracolo"
+      },
+      "cost": {
+        "MP": 25
+      },
+      "effect": "DEBUFF nemico: -20% precisione e -15 AGI per 3 turni."
+    },
+    {
+      "id": "ora_destino_segnato",
+      "name": "Destino Segnato",
+      "type": "passive",
+      "branch": "t2_oracolo",
+      "requirements": {
+        "subclass": "oracolo"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Ogni colpo critico ripristina 10 MP."
+    },
+    {
+      "id": "ang_resurrezione",
+      "name": "Resurrezione",
+      "type": "passive",
+      "branch": "t3_angelo_custode",
+      "requirements": {
+        "advanced_class": "angelo_custode"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Se HP scendono a 0, ripristino a 50% HP/MP. Una volta per combattimento."
+    },
+    {
+      "id": "ang_cura_celestiale",
+      "name": "Cura Celestiale",
+      "type": "healing",
+      "branch": "t3_angelo_custode",
+      "requirements": {
+        "advanced_class": "angelo_custode"
+      },
+      "cost": {
+        "MP": 60
+      },
+      "effect": "Ripristina HP al massimo e rimuove tutti gli stati negativi."
+    },
+    {
+      "id": "ang_scudo_angelico",
+      "name": "Scudo Angelico",
+      "type": "passive",
+      "branch": "t3_angelo_custode",
+      "requirements": {
+        "advanced_class": "angelo_custode"
+      },
+      "cost": {},
+      "effect": "PASSIVA: I primi 50 danni di ogni combattimento sono assorbiti automaticamente."
+    },
+    {
+      "id": "ang_grazia_divina",
+      "name": "Grazia Divina",
+      "type": "defensive",
+      "branch": "t3_angelo_custode",
+      "requirements": {
+        "advanced_class": "angelo_custode"
+      },
+      "cost": {
+        "MP": 80
+      },
+      "effect": "Invulnerabilità per 2 turni."
+    },
+    {
+      "id": "fon_torrente_vita",
+      "name": "Torrente di Vita",
+      "type": "healing",
+      "branch": "t3_fonte_vita",
+      "requirements": {
+        "advanced_class": "fonte_vita"
+      },
+      "cost": {
+        "MP": 50
+      },
+      "effect": "BUFF: +20 HP per turno per 10 turni (totale 200 HP)."
+    },
+    {
+      "id": "fon_overflow_cura",
+      "name": "Overflow di Cura",
+      "type": "healing",
+      "branch": "t3_fonte_vita",
+      "requirements": {
+        "advanced_class": "fonte_vita"
+      },
+      "cost": {
+        "MP": 40
+      },
+      "effect": "Le cure eccedenti l'HP max diventano scudi temporanei fino al turno successivo."
+    },
+    {
+      "id": "fon_benedizione_massa",
+      "name": "Benedizione di Massa",
+      "type": "passive",
+      "branch": "t3_fonte_vita",
+      "requirements": {
+        "advanced_class": "fonte_vita"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Inizi ogni combattimento con +20 HP temporanei come scudo."
+    },
+    {
+      "id": "fon_vita_eterna",
+      "name": "Vita Eterna",
+      "type": "defensive",
+      "branch": "t3_fonte_vita",
+      "requirements": {
+        "advanced_class": "fonte_vita"
+      },
+      "cost": {
+        "MP": 90
+      },
+      "effect": "Non puoi essere ucciso per 3 turni: HP si bloccano a 1 anche se i danni sarebbero letali."
+    },
+    {
+      "id": "cav_lancia_luce",
+      "name": "Lancia di Luce",
+      "type": "magical",
+      "branch": "t3_cavaliere_luce",
+      "requirements": {
+        "advanced_class": "cavaliere_luce"
+      },
+      "cost": {
+        "MP": 50
+      },
+      "effect": "Danno sacro massiccio. Danno = TEC × 5.0. Ignora il 30% di resistenza."
+    },
+    {
+      "id": "cav_armatura_luce",
+      "name": "Armatura di Luce",
+      "type": "passive",
+      "branch": "t3_cavaliere_luce",
+      "requirements": {
+        "advanced_class": "cavaliere_luce"
+      },
+      "cost": {},
+      "effect": "PASSIVA: +15% riduzione danni fisici permanente."
+    },
+    {
+      "id": "cav_crociata",
+      "name": "Crociata",
+      "type": "physical",
+      "branch": "t3_cavaliere_luce",
+      "requirements": {
+        "advanced_class": "cavaliere_luce"
+      },
+      "cost": {
+        "MP": 35,
+        "STM": 20
+      },
+      "effect": "Danno sacro + fisico simultaneo. Danno = STR × 1.5 + TEC × 1.5."
+    },
+    {
+      "id": "cav_giudizio_finale",
+      "name": "Giudizio Finale",
+      "type": "magical",
+      "branch": "t3_cavaliere_luce",
+      "requirements": {
+        "advanced_class": "cavaliere_luce"
+      },
+      "cost": {
+        "MP": 60
+      },
+      "effect": "Danno sacro che scala con la vita mancante del nemico. A 10% HP del nemico: danno × 3.0."
+    },
+    {
+      "id": "giu_caccia_sacra",
+      "name": "Caccia Sacra",
+      "type": "passive",
+      "branch": "t3_giustiziere_sacro",
+      "requirements": {
+        "advanced_class": "giustiziere_sacro"
+      },
+      "cost": {},
+      "effect": "PASSIVA: +25% danno contro nemici con almeno uno stato negativo attivo."
+    },
+    {
+      "id": "giu_sentenza_divina",
+      "name": "Sentenza Divina",
+      "type": "magical",
+      "branch": "t3_giustiziere_sacro",
+      "requirements": {
+        "advanced_class": "giustiziere_sacro"
+      },
+      "cost": {
+        "MP": 40
+      },
+      "effect": "Marchia il nemico: alla sua morte esplode in luce sacra, ripristinando 50 HP al player."
+    },
+    {
+      "id": "giu_purgatorio",
+      "name": "Purgatorio",
+      "type": "magical",
+      "branch": "t3_giustiziere_sacro",
+      "requirements": {
+        "advanced_class": "giustiziere_sacro"
+      },
+      "cost": {
+        "MP": 55
+      },
+      "effect": "Danno sacro continuo per 5 turni: +15 danno sacro per turno al nemico."
+    },
+    {
+      "id": "giu_ira_cieli",
+      "name": "Ira dei Cieli",
+      "type": "magical",
+      "branch": "t3_giustiziere_sacro",
+      "requirements": {
+        "advanced_class": "giustiziere_sacro"
+      },
+      "cost": {
+        "MP": 75
+      },
+      "effect": "Danno sacro massiccio che ignora completamente le resistenze. Danno = TEC × 6.0."
+    },
+    {
+      "id": "pre_tiro_destino",
+      "name": "Tiro del Destino",
+      "type": "passive",
+      "branch": "t3_prescelto",
+      "requirements": {
+        "advanced_class": "prescelto"
+      },
+      "cost": {},
+      "effect": "PASSIVA: +40% probabilità critico permanente."
+    },
+    {
+      "id": "pre_occhio_fato",
+      "name": "Occhio del Fato",
+      "type": "utility",
+      "branch": "t3_prescelto",
+      "requirements": {
+        "advanced_class": "prescelto"
+      },
+      "cost": {
+        "MP": 25
+      },
+      "effect": "Rivela immediatamente tutte le stat, debolezze e meccaniche speciali del nemico."
+    },
+    {
+      "id": "pre_scelta_destino",
+      "name": "Scelta del Destino",
+      "type": "utility",
+      "branch": "t3_prescelto",
+      "requirements": {
+        "advanced_class": "prescelto"
+      },
+      "cost": {
+        "MP": 50
+      },
+      "effect": "Azzera tutti i cooldown di skill attive. Una volta per combattimento."
+    },
+    {
+      "id": "pre_colpo_predetto",
+      "name": "Colpo Predetto",
+      "type": "physical",
+      "branch": "t3_prescelto",
+      "requirements": {
+        "advanced_class": "prescelto"
+      },
+      "cost": {
+        "MP": 30
+      },
+      "effect": "Il prossimo attacco fisico infligge critico garantito (×1.5) indipendentemente da qualsiasi variabile."
+    },
+    {
+      "id": "veg_visione_caos",
+      "name": "Visione del Caos",
+      "type": "magical",
+      "branch": "t3_veggente_abissi",
+      "requirements": {
+        "advanced_class": "veggente_abissi"
+      },
+      "cost": {
+        "MP": 30
+      },
+      "effect": "Applica Confusione al nemico per 2 turni: 40% delle sue azioni falliscono."
+    },
+    {
+      "id": "veg_futuro_alterato",
+      "name": "Futuro Alterato",
+      "type": "passive",
+      "branch": "t3_veggente_abissi",
+      "requirements": {
+        "advanced_class": "veggente_abissi"
+      },
+      "cost": {},
+      "effect": "PASSIVA: 15% probabilità di evitare completamente qualsiasi attacco nemico."
+    },
+    {
+      "id": "veg_paradosso",
+      "name": "Paradosso Temporale",
+      "type": "utility",
+      "branch": "t3_veggente_abissi",
+      "requirements": {
+        "advanced_class": "veggente_abissi"
+      },
+      "cost": {
+        "MP": 60
+      },
+      "effect": "Annulla narrativamente l'ultimo attacco nemico: HP ripristinati al valore pre-danno."
+    },
+    {
+      "id": "veg_fine_scritta",
+      "name": "Fine Scritta",
+      "type": "magical",
+      "branch": "t3_veggente_abissi",
+      "requirements": {
+        "advanced_class": "veggente_abissi"
+      },
+      "cost": {
+        "MP": 80
+      },
+      "effect": "Il nemico perde il 30% degli HP correnti (riduzione diretta, non danno)."
+    },
+    {
+      "id": "ing_analisi_tecnica",
+      "name": "Analisi Tecnica",
+      "type": "utility",
+      "branch": "ingegnere_base",
+      "requirements": {
+        "job": "Ingegnere"
+      },
+      "cost": {
+        "MP": 15
+      },
+      "effect": "Rivela resistenze meccaniche e punti deboli strutturali. Più precisa su costrutti e boss meccanici."
+    },
+    {
+      "id": "ing_colpo_potenziato",
+      "name": "Colpo Potenziato",
+      "type": "physical",
+      "branch": "ingegnere_base",
+      "requirements": {
+        "job": "Ingegnere"
+      },
+      "cost": {
+        "STM": 20
+      },
+      "effect": "Attacco fisico amplificato. Danno = (STR + TEC) × 1.2."
+    },
+    {
+      "id": "ing_gadget_emergenza",
+      "name": "Gadget di Emergenza",
+      "type": "utility",
+      "branch": "ingegnere_base",
+      "requirements": {
+        "job": "Ingegnere"
+      },
+      "cost": {
+        "MP": 20
+      },
+      "effect": "Crea un dispositivo che ripristina 30 STM."
+    },
+    {
+      "id": "ing_sovraccarico",
+      "name": "Sovraccarico",
+      "type": "buff",
+      "branch": "ingegnere_base",
+      "requirements": {
+        "job": "Ingegnere"
+      },
+      "cost": {
+        "MP": 30,
+        "STM": 15
+      },
+      "effect": "BUFF: La prossima skill attiva ha effetto amplificato del 50%."
+    },
+    {
+      "id": "mec_torretta",
+      "name": "Disponi Torretta",
+      "type": "utility",
+      "branch": "t2_meccanico",
+      "requirements": {
+        "subclass": "meccanico"
+      },
+      "cost": {
+        "MP": 40
+      },
+      "effect": "Torretta automatica per 4 turni. Danno = TEC × 1.0 per turno."
+    },
+    {
+      "id": "mec_scudo_meccanico",
+      "name": "Scudo Meccanico",
+      "type": "defensive",
+      "branch": "t2_meccanico",
+      "requirements": {
+        "subclass": "meccanico"
+      },
+      "cost": {
+        "MP": 30
+      },
+      "effect": "SCUDO: Assorbe i prossimi 100 danni."
+    },
+    {
+      "id": "mec_motore_combattimento",
+      "name": "Motore di Combattimento",
+      "type": "passive",
+      "branch": "t2_meccanico",
+      "requirements": {
+        "subclass": "meccanico"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Ogni danno inflitto genera +1 STM (max +20 per combattimento)."
+    },
+    {
+      "id": "mec_riparazione",
+      "name": "Riparazione di Campo",
+      "type": "healing",
+      "branch": "t2_meccanico",
+      "requirements": {
+        "subclass": "meccanico"
+      },
+      "cost": {
+        "STM": 25
+      },
+      "effect": "Ripristina 50 HP usando componenti meccanici. Non richiede MP."
+    },
+    {
+      "id": "mec_potenziamento",
+      "name": "Potenziamento Meccanico",
+      "type": "buff",
+      "branch": "t2_meccanico",
+      "requirements": {
+        "subclass": "meccanico"
+      },
+      "cost": {
+        "MP": 35
+      },
+      "effect": "BUFF: +20 STR e +20 TEC per 4 turni grazie a un esoscheletro leggero."
+    },
+    {
+      "id": "alc_bomba_acida",
+      "name": "Bomba Acida",
+      "type": "magical",
+      "branch": "t2_alchimista",
+      "requirements": {
+        "subclass": "alchimista"
+      },
+      "cost": {
+        "MP": 25
+      },
+      "effect": "Danno + stato Corrosivo per 3 turni (-10 VIT del nemico)."
+    },
+    {
+      "id": "alc_elisir",
+      "name": "Elisir di Combattimento",
+      "type": "healing",
+      "branch": "t2_alchimista",
+      "requirements": {
+        "subclass": "alchimista"
+      },
+      "cost": {
+        "MP": 30
+      },
+      "effect": "Ripristina 60 HP + BUFF: +15 STR per 3 turni."
+    },
+    {
+      "id": "alc_trasmutazione",
+      "name": "Trasmutazione",
+      "type": "utility",
+      "branch": "t2_alchimista",
+      "requirements": {
+        "subclass": "alchimista"
+      },
+      "cost": {
+        "STM": 20
+      },
+      "effect": "Converte un materiale in borsa in +15 a uno stat a scelta per 2 turni."
+    },
+    {
+      "id": "alc_nebbia",
+      "name": "Nebbia Alchemica",
+      "type": "magical",
+      "branch": "t2_alchimista",
+      "requirements": {
+        "subclass": "alchimista"
+      },
+      "cost": {
+        "MP": 20
+      },
+      "effect": "DEBUFF nemico: -30% precisione per 3 turni."
+    },
+    {
+      "id": "alc_catalisi",
+      "name": "Catalisi",
+      "type": "passive",
+      "branch": "t2_alchimista",
+      "requirements": {
+        "subclass": "alchimista"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Tutti i consumabili hanno il 15% in più di effetto."
+    },
+    {
+      "id": "inv_gadget_esplosivo",
+      "name": "Gadget Esplosivo",
+      "type": "physical",
+      "branch": "t2_inventore",
+      "requirements": {
+        "subclass": "inventore"
+      },
+      "cost": {
+        "MP": 35,
+        "STM": 15
+      },
+      "effect": "Bomba AoE. Danno = TEC × 3.5. Colpisce anche i nemici adiacenti."
+    },
+    {
+      "id": "inv_razzo",
+      "name": "Razzo da Battaglia",
+      "type": "physical",
+      "branch": "t2_inventore",
+      "requirements": {
+        "subclass": "inventore"
+      },
+      "cost": {
+        "MP": 30
+      },
+      "effect": "Danno a distanza. Danno = TEC × 2.5. Colpisce anche nemici volanti."
+    },
+    {
+      "id": "inv_tuta_rinforzata",
+      "name": "Tuta Rinforzata",
+      "type": "passive",
+      "branch": "t2_inventore",
+      "requirements": {
+        "subclass": "inventore"
+      },
+      "cost": {},
+      "effect": "PASSIVA: +20% riduzione danni fisici permanente."
+    },
+    {
+      "id": "inv_auto_riparazione",
+      "name": "Auto-Riparazione",
+      "type": "healing",
+      "branch": "t2_inventore",
+      "requirements": {
+        "subclass": "inventore"
+      },
+      "cost": {
+        "MP": 50
+      },
+      "effect": "Sistema di auto-riparazione: ripristina al 50% HP. Una volta per combattimento."
+    },
+    {
+      "id": "inv_iperboost",
+      "name": "Iperboost",
+      "type": "buff",
+      "branch": "t2_inventore",
+      "requirements": {
+        "subclass": "inventore"
+      },
+      "cost": {
+        "MP": 45,
+        "STM": 25
+      },
+      "effect": "BUFF: Tutte le stat +15% per 2 turni. Non riattivabile nello stesso combattimento."
+    },
+    {
+      "id": "min_doppia_torretta",
+      "name": "Doppia Torretta",
+      "type": "utility",
+      "branch": "t3_mastro_ingegnere",
+      "requirements": {
+        "advanced_class": "mastro_ingegnere"
+      },
+      "cost": {
+        "MP": 60
+      },
+      "effect": "Due torrette simultanee per 4 turni. Danno combinato = TEC × 2.0 per turno."
+    },
+    {
+      "id": "min_esoscheletro",
+      "name": "Esoscheletro di Guerra",
+      "type": "defensive",
+      "branch": "t3_mastro_ingegnere",
+      "requirements": {
+        "advanced_class": "mastro_ingegnere"
+      },
+      "cost": {
+        "MP": 50
+      },
+      "effect": "BUFF: Riduzione danni 50% per 4 turni + STR +20."
+    },
+    {
+      "id": "min_supremo",
+      "name": "Ingegnere Supremo",
+      "type": "passive",
+      "branch": "t3_mastro_ingegnere",
+      "requirements": {
+        "advanced_class": "mastro_ingegnere"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Le torrette infliggono il 20% in più e durano 2 turni extra."
+    },
+    {
+      "id": "min_fortezza_mobile",
+      "name": "Fortezza Mobile",
+      "type": "defensive",
+      "branch": "t3_mastro_ingegnere",
+      "requirements": {
+        "advanced_class": "mastro_ingegnere"
+      },
+      "cost": {
+        "MP": 80
+      },
+      "effect": "Barriera meccanica che assorbe tutto il danno di un turno."
+    },
+    {
+      "id": "mac_carro_assalto",
+      "name": "Carro d'Assalto",
+      "type": "physical",
+      "branch": "t3_macchinista_guerra",
+      "requirements": {
+        "advanced_class": "macchinista_guerra"
+      },
+      "cost": {
+        "STM": 40,
+        "MP": 30
+      },
+      "effect": "Carica devastante. Danno = (STR + TEC) × 4.0. Stordisce per 1 turno."
+    },
+    {
+      "id": "mac_bomba_catena",
+      "name": "Bomba a Catena",
+      "type": "physical",
+      "branch": "t3_macchinista_guerra",
+      "requirements": {
+        "advanced_class": "macchinista_guerra"
+      },
+      "cost": {
+        "MP": 55
+      },
+      "effect": "3 esplosioni consecutive, ognuna TEC × 2.0 danno."
+    },
+    {
+      "id": "mac_sistema_armi",
+      "name": "Sistema d'Armi",
+      "type": "passive",
+      "branch": "t3_macchinista_guerra",
+      "requirements": {
+        "advanced_class": "macchinista_guerra"
+      },
+      "cost": {},
+      "effect": "PASSIVA: +30% danno fisico globale."
+    },
+    {
+      "id": "mac_devastazione",
+      "name": "Devastazione Meccanica",
+      "type": "physical",
+      "branch": "t3_macchinista_guerra",
+      "requirements": {
+        "advanced_class": "macchinista_guerra"
+      },
+      "cost": {
+        "STM": 50,
+        "MP": 40
+      },
+      "effect": "Danno = danno_totale_inflitto_nel_combattimento × 0.5."
+    },
+    {
+      "id": "gra_pietra_filosofale",
+      "name": "Pietra Filosofale",
+      "type": "healing",
+      "branch": "t3_grande_alchimista",
+      "requirements": {
+        "advanced_class": "grande_alchimista"
+      },
+      "cost": {
+        "MP": 80
+      },
+      "effect": "Ripristina HP, MP e STM al 100%. Una volta per combattimento."
+    },
+    {
+      "id": "gra_trasmutazione_universale",
+      "name": "Trasmutazione Universale",
+      "type": "utility",
+      "branch": "t3_grande_alchimista",
+      "requirements": {
+        "advanced_class": "grande_alchimista"
+      },
+      "cost": {
+        "MP": 40
+      },
+      "effect": "Converte qualsiasi stato negativo in +10 alla stat corrispondente per 3 turni."
+    },
+    {
+      "id": "gra_maestro_pozioni",
+      "name": "Maestro delle Pozioni",
+      "type": "passive",
+      "branch": "t3_grande_alchimista",
+      "requirements": {
+        "advanced_class": "grande_alchimista"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Pozioni ed elisir curano il doppio."
+    },
+    {
+      "id": "gra_acido_finale",
+      "name": "Acido Finale",
+      "type": "magical",
+      "branch": "t3_grande_alchimista",
+      "requirements": {
+        "advanced_class": "grande_alchimista"
+      },
+      "cost": {
+        "MP": 65
+      },
+      "effect": "Danno = TEC × 3.0 immediato + 15 danno corrosivo per 5 turni."
+    },
+    {
+      "id": "tra_conversione_materia",
+      "name": "Conversione di Materia",
+      "type": "passive",
+      "branch": "t3_trasmutatore",
+      "requirements": {
+        "advanced_class": "trasmutatore"
+      },
+      "cost": {},
+      "effect": "PASSIVA: Ogni danno subito aumenta TEC di 1 (max +10 per combattimento)."
+    },
+    {
+      "id": "tra_fusione_elementale",
+      "name": "Fusione Elementale",
+      "type": "magical",
+      "branch": "t3_trasmutatore",
+      "requirements": {
+        "advanced_class": "trasmutatore"
+      },
+      "cost": {
+        "MP": 50
+      },
+      "effect": "Applica fuoco, acqua, fulmine e ghiaccio simultaneamente. Danno = TEC × 2.0 per elemento."
+    },
+    {
+      "id": "tra_rigenesi",
+      "name": "Rigenesi",
+      "type": "healing",
+      "branch": "t3_trasmutatore",
+      "requirements": {
+        "advanced_class": "trasmutatore"
+      },
+      "cost": {
+        "MP": 45
+      },
+      "effect": "Trasforma il 50% dei danni subiti nell'ultimo turno in HP bonus temporanei."
+    },
+    {
+      "id": "tra_grande_opera",
+      "name": "Grande Opera",
+      "type": "magical",
+      "branch": "t3_trasmutatore",
+      "requirements": {
+        "advanced_class": "trasmutatore"
+      },
+      "cost": {
+        "MP": 90,
+        "STM": 40
+      },
+      "effect": "Danno = (TEC × STR × 0.5) + tutti i bonus attivi sommati."
+    },
+    {
+      "id": "gen_invenzione_suprema",
+      "name": "Invenzione Suprema",
+      "type": "utility",
+      "branch": "t3_genio_creativo",
+      "requirements": {
+        "advanced_class": "genio_creativo"
+      },
+      "cost": {
+        "MP": 60
+      },
+      "effect": "Crea un gadget unico ogni combattimento con effetto randomizzato determinato dal GM."
+    },
+    {
+      "id": "gen_overload",
+      "name": "Overload Tecnologico",
+      "type": "buff",
+      "branch": "t3_genio_creativo",
+      "requirements": {
+        "advanced_class": "genio_creativo"
+      },
+      "cost": {
+        "MP": 70
+      },
+      "effect": "BUFF: Le skill tecniche non consumano risorse per 3 turni."
+    },
+    {
+      "id": "gen_mente_brillante",
+      "name": "Mente Brillante",
+      "type": "passive",
+      "branch": "t3_genio_creativo",
+      "requirements": {
+        "advanced_class": "genio_creativo"
+      },
+      "cost": {},
+      "effect": "PASSIVA: TEC +5 permanente."
+    },
+    {
+      "id": "gen_paradosso",
+      "name": "Paradosso dell'Inventore",
+      "type": "utility",
+      "branch": "t3_genio_creativo",
+      "requirements": {
+        "advanced_class": "genio_creativo"
+      },
+      "cost": {
+        "MP": 100
+      },
+      "effect": "Ripristina completamente HP, MP, STM e azzera i cooldown. Una volta per sessione."
+    },
+    {
+      "id": "gol_golem_combattimento",
+      "name": "Golem da Combattimento",
+      "type": "utility",
+      "branch": "t3_golem_master",
+      "requirements": {
+        "advanced_class": "golem_master"
+      },
+      "cost": {
+        "MP": 80
+      },
+      "effect": "Evoca un golem automatico. Danno = TEC × 2.5 per turno fino alla fine del combattimento."
+    },
+    {
+      "id": "gol_fusione_golem",
+      "name": "Fusione con il Golem",
+      "type": "buff",
+      "branch": "t3_golem_master",
+      "requirements": {
+        "advanced_class": "golem_master"
+      },
+      "cost": {
+        "MP": 50,
+        "STM": 30
+      },
+      "effect": "Fusione per 3 turni: +40 STR, +30 VIT, +20% riduzione danni."
+    },
+    {
+      "id": "gol_corpo_ferro",
+      "name": "Corpo di Ferro",
+      "type": "passive",
+      "branch": "t3_golem_master",
+      "requirements": {
+        "advanced_class": "golem_master"
+      },
+      "cost": {},
+      "effect": "PASSIVA: +30% HP max mentre un golem è attivo."
+    },
+    {
+      "id": "gol_golem_omega",
+      "name": "Golem Omega",
+      "type": "utility",
+      "branch": "t3_golem_master",
+      "requirements": {
+        "advanced_class": "golem_master"
+      },
+      "cost": {
+        "MP": 120
+      },
+      "effect": "Golem definitivo per 2 turni. Danno = TEC × 6.0 per turno."
+    },
+    {
+      "id": "spe_colpo_leggendario",
+      "name": "Colpo Leggendario",
+      "type": "physical",
+      "branch": "special",
+      "requirements": {
+        "counter": {
+          "enemies_defeated": 20
+        }
+      },
+      "cost": {
+        "STM": 50
+      },
+      "effect": "Danno × 3 una volta per combattimento. Ignora il 50% della resistenza."
+    },
+    {
+      "id": "spe_sangue_antichi",
+      "name": "Sangue degli Antichi",
+      "type": "passive",
+      "branch": "special",
+      "requirements": {
+        "counter": {
+          "enemies_defeated": 30
+        }
+      },
+      "cost": {},
+      "effect": "PASSIVA: +20% a tutte le stat finché HP > 50%. Bonus dimezzato sotto il 50%."
+    },
+    {
+      "id": "spe_linguaggio_mostri",
+      "name": "Linguaggio dei Mostri",
+      "type": "passive",
+      "branch": "special",
+      "requirements": {
+        "counter": {
+          "enemies_analyzed": 10
+        }
+      },
+      "cost": {},
+      "effect": "PASSIVA: Analisi automatica completa a inizio combattimento."
+    },
+    {
+      "id": "spe_fortuna_cacciatore",
+      "name": "Fortuna del Cacciatore",
+      "type": "passive",
+      "branch": "special",
+      "requirements": {
+        "counter": {
+          "unique_completed": 3
+        }
+      },
+      "cost": {},
+      "effect": "PASSIVA: +30 LUC permanente."
+    },
+    {
+      "id": "spe_risurrezione_fallen",
+      "name": "Risurrezione del Fallen",
+      "type": "passive",
+      "branch": "special",
+      "requirements": {
+        "counter": {
+          "near_death_survives": 5
+        }
+      },
+      "cost": {},
+      "effect": "PASSIVA: Quando HP scendono a 0, 30% probabilità di sopravvivere con 1 HP."
     }
   ]
 }

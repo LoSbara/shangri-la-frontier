@@ -1,5 +1,6 @@
 {
-  "location": "Crysta — Città di Partenza",
+  "location": "Crysta",
+  "sub_location": "Taverna del Cacciatore",
   "zone_type": "safe_zone",
   "quests_active": [],
   "quests_completed": [],
@@ -7,5 +8,14 @@
   "combat_active": false,
   "current_enemy": null,
   "skill_loadout": [],
-  "session_log": []
+  "session_log": [
+    {
+      "role": "user",
+      "content": "Inizia il gioco."
+    },
+    {
+      "role": "assistant",
+      "content": "Benvenuto in **Shangri-La Frontier**, un mondo di avventura e mistero. Sei un **Cacciatore**, un esploratore coraggioso che cerca di scoprire i segreti di questo mondo virtuale. La tua avventura inizia nella città di **Crysta**, un luogo di incontro per cacciatori e avventurieri. Crysta è una città fiorente, con mercati, taverne e negozi di attrezzature per cacciatori. La città è circondata da una foresta misteriosa e piena di pericoli, la **Foresta di Aokara**. Sei pronto a iniziare la tua avventura?"
+    }
+  ]
 }

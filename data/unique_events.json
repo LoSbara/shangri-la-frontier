@@ -1,0 +1,116 @@
+{
+  "events": [
+    {
+      "id": "gladiatore_antico",
+      "name": "L'Arena del Gladiatore Antico",
+      "flag": "gladiatore_antico_completato",
+      "trigger_hint": "Zona Crysta, REP hunters_guild >= 20, LUC >= 13. Il vecchio si presenta nei vicoli del quartiere delle armi.",
+      "description": "Un veterano dalla corporatura scolpita sfida il player a un duello rituale: nessuna skill, solo STR e AGI.",
+      "enemies": [{ "name": "Gladiatore Antico", "tier": "A", "level": 15, "hp_max": 600 }],
+      "rewards": {
+        "exp": 800,
+        "money": 500,
+        "skill_id": "spe_colpo_leggendario",
+        "reputation": { "hunters_guild": 15 }
+      },
+      "narrative_hook": "Un vecchio dalla schiena dritta ti blocca il passo. 'Mostramelo, cacciatore. Il tuo corpo — non le tue skill.'"
+    },
+    {
+      "id": "rovine_primordiali",
+      "name": "Le Rovine Primordiali",
+      "flag": "rovine_primordiali_completato",
+      "trigger_hint": "Prima visita Foresta di Aokara con LUC >= 15. Le rovine appaiono fuori dai sentieri principali.",
+      "description": "Rovine di una civiltà scomparsa prima di Shangri-La. Un'entità senza nome offre conoscenza ancestrale in cambio di un combattimento senza riserve.",
+      "enemies": [{ "name": "Entità Primordiale", "tier": "SS", "level": 25, "hp_max": 2000 }],
+      "rewards": {
+        "exp": 2000,
+        "money": 0,
+        "skill_id": "spe_sangue_antichi",
+        "unique_item": "frammento_specchio"
+      },
+      "narrative_hook": "Pietre fluttuanti. Iscrizioni che brillano di una luce che non ha sorgente. La voce non ha direzione."
+    },
+    {
+      "id": "mercante_fantasma",
+      "name": "Il Mercante Senza Volto",
+      "flag": "mercante_fantasma_visitato",
+      "trigger_hint": "LUC >= 16 durante un pernottamento in una taverna. Appare solo una volta per sessione.",
+      "description": "Una sagoma illuminata da una candela che non esiste bussica alla porta della stanza. Vende oggetti unici a prezzi impossibili — ma solo se il player ha Ragne sufficienti.",
+      "enemies": [],
+      "rewards": {
+        "special": "accesso_negozio_fantasma",
+        "unique_items_available": ["mantello_ombra_assoluta", "amuleto_rinascita", "cristallo_arcano_potenziato"]
+      },
+      "narrative_hook": "Il bordo della porta brilla appena. Una voce senza timbro: 'Hai Ragne? Allora ho qualcosa per te.'"
+    },
+    {
+      "id": "cripta_del_re",
+      "name": "La Cripta del Re Perduto",
+      "flag": "cripta_re_completato",
+      "trigger_hint": "TEC >= 14 e almeno 10 nemici sconfitti, zona Crysta (sotterranei). Una botola nascosta sotto una lastra incrinata nel vicolo est.",
+      "description": "Una cripta sigillata con sigilli arcaici. Il re che dorme li vuole rompere — da dentro.",
+      "enemies": [{ "name": "Re Perduto", "tier": "SS", "level": 20, "hp_max": 1200, "mechanic": "A 50% HP entra in modalità fantasma: armi fisiche -50% danno" }],
+      "rewards": {
+        "exp": 1500,
+        "money": 2000,
+        "unique_item": "corona_del_re_perduto"
+      },
+      "narrative_hook": "Una botola. Sigilli incisi come graffi disperati. Da sotto, qualcosa trema."
+    },
+    {
+      "id": "specchio_del_doppio",
+      "name": "Lo Specchio del Doppio",
+      "flag": "specchio_doppio_completato",
+      "trigger_hint": "Livello >= 10, zona dungeon qualsiasi. Lo specchio compare in una stanza laterale senza porte evidenti.",
+      "description": "Uno specchio con cornice d'argento ossidato. La tua riflessione si muove da sola — e attacca.",
+      "enemies": [{ "name": "Il Doppio", "tier": "S", "level_offset": 5, "hp_formula": "player_hp_max × 1.2", "mechanic": "Usa le stesse skill del player. Immunità a danno dello stesso tipo che usa più spesso." }],
+      "rewards": {
+        "exp": 1200,
+        "stat_points": 3,
+        "unique_item": "frammento_specchio"
+      },
+      "narrative_hook": "Uno specchio. La tua faccia ti fissa — poi sorride in modo che tu non hai mai sorriso."
+    },
+    {
+      "id": "il_collezionista",
+      "name": "Il Collezionista di Rare",
+      "flag": "collezionista_visitato",
+      "trigger_hint": "Bestiary con almeno 5 nemici analizzati. Appare nei mercati o in zone di sosta post-combattimento.",
+      "description": "Un eccentrico con una borsa enorme cerca campioni biologici di mostri. La borsa sembra contenere molto più di quanto dovrebbe.",
+      "enemies": [],
+      "rewards": {
+        "money_per_rarity": { "comune": 50, "non_comune": 150, "raro": 400, "epico": 1000 },
+        "reputation": { "scholars": 15 }
+      },
+      "narrative_hook": "Un uomo con occhiali cerchiati d'oro e una borsa che fischia leggermente. 'Compro campioni. Roba fresca, preferibilmente.'"
+    },
+    {
+      "id": "trono_dei_cacciatori",
+      "name": "Il Torneo dei Cacciatori",
+      "flag": "trono_cacciatori_completato",
+      "trigger_hint": "REP hunters_guild >= 50. Un sigillo rosso appare nella borsa del player senza preavviso.",
+      "description": "La Gilda convoca i migliori per un torneo segreto. Il vincitore ottiene un titolo e l'accesso al piano superiore della Gilda.",
+      "enemies": [{ "name": "Campione della Gilda", "tier": "S", "level": 20, "hp_max": 900, "mechanic": "Cambia pattern di attacco ogni 3 turni" }],
+      "rewards": {
+        "exp": 1800,
+        "reputation": { "hunters_guild": 25 },
+        "unique_item": "insegna_del_campione"
+      },
+      "narrative_hook": "Un sigillo di cera rossa nella tua borsa. Iniziali: G.C. Nessun mittente."
+    },
+    {
+      "id": "voce_del_caos",
+      "name": "La Voce del Caos",
+      "flag": "voce_caos_completato",
+      "trigger_hint": "counter near_death_survives >= 3 e REP underground > 0. Si manifesta in zone oscure dopo un combattimento intenso.",
+      "description": "Una voce inizia come ronzio e diventa un nome. Offre potere immenso — a un prezzo reputazionale.",
+      "enemies": [{ "name": "Entità del Caos", "tier": "SSS", "level": 30, "hp_max": 5000, "mechanic": "Resistenza e debolezza cambiano ogni turno. +5% HP se non attaccata nel turno." }],
+      "rewards": {
+        "exp": 3000,
+        "skill_id": "spe_risurrezione_fallen",
+        "reputation": { "underground": 30, "city_guard": -20, "hunters_guild": -10 }
+      },
+      "narrative_hook": "Il ronzio ti chiama per nome. Non in gioco — il tuo nome vero."
+    }
+  ]
+}

@@ -1,13 +1,22 @@
 {
-  "name": "",
-  "job": "",
+  "name": null,
+  "job": null,
   "level": 1,
   "experience": 0,
   "experience_to_next": 100,
   "stats": {
-    "HP": { "current": 100, "max": 100 },
-    "MP": { "current": 50, "max": 50 },
-    "STM": { "current": 100, "max": 100 },
+    "HP": {
+      "current": 100,
+      "max": 100
+    },
+    "MP": {
+      "current": 50,
+      "max": 50
+    },
+    "STM": {
+      "current": 100,
+      "max": 100
+    },
     "STR": 10,
     "DEX": 10,
     "AGI": 10,
@@ -15,7 +24,32 @@
     "VIT": 10,
     "LUC": 10
   },
-  "stat_points_available": 15,
+  "stat_points_available": 10,
   "money": 500,
-  "skill_slots": 4
+  "skill_slots": 4,
+  "subclass": null,
+  "advanced_class": null,
+  "titles": [],
+  "status_effects": [],
+  "reputation": {
+    "hunters_guild": 0,
+    "merchants": 0,
+    "city_guard": 0,
+    "scholars": 0,
+    "underground": 0
+  },
+  "action_counters": {
+    "enemies_defeated": 0,
+    "dodges": 0,
+    "criticals": 0,
+    "enemies_analyzed": 0,
+    "zones_visited": [
+      "Crysta — Città di Partenza"
+    ],
+    "max_money": 500,
+    "elite_kills": 0,
+    "unique_completed": 0,
+    "max_skills_in_combat": 0,
+    "near_death_survives": 0
+  }
 }
