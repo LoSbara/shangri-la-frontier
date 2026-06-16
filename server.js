@@ -3,12 +3,12 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const Groq = require('groq-sdk');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const MODEL = 'llama-3.3-70b-versatile';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const MODEL = 'gemini-1.5-flash';
 
 const SUBCLASS_NAMES = {
   berserker: 'Berserker', guardian: 'Guardiano', blade_master: 'Lama Assoluta',
@@ -87,12 +87,28 @@ function repLabel(val) {
   return 'Alleato';
 }
 
-if (!GROQ_API_KEY) {
-  console.error('❌  GROQ_API_KEY mancante nel file .env');
+if (!GEMINI_API_KEY) {
+  console.error('❌  GEMINI_API_KEY mancante nel file .env');
   process.exit(1);
 }
 
-const groq = new Groq({ apiKey: GROQ_API_KEY });
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+
+function autoBackup(profile, gameState, uiEvents) {
+  try {
+    const isLevelUp = uiEvents.includes('level_up');
+    const uniqueDone = Object.values(gameState.unique_scenario_flags || {}).filter(Boolean).length;
+    if (!isLevelUp && uniqueDone === 0) return;
+    const BACKUP_DIR = path.join(__dirname, 'data', 'backups');
+    if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const prefix = `${(profile.name || 'player').replace(/\s+/g, '_')}_lv${profile.level}_${ts}`;
+    fs.writeFileSync(path.join(BACKUP_DIR, `${prefix}_profile.json`), JSON.stringify(profile, null, 2));
+    fs.writeFileSync(path.join(BACKUP_DIR, `${prefix}_gamestate.json`), JSON.stringify(gameState, null, 2));
+    const files = fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith('.json')).sort();
+    if (files.length > 40) files.slice(0, files.length - 40).forEach(f => { try { fs.unlinkSync(path.join(BACKUP_DIR, f)); } catch {} });
+  } catch { /* non-critical */ }
+}
 const DATA_DIR  = path.join(__dirname, 'data');
 const SLOTS_DIR = path.join(__dirname, 'data', 'slots');
 if (!fs.existsSync(SLOTS_DIR)) fs.mkdirSync(SLOTS_DIR, { recursive: true });
@@ -320,9 +336,10 @@ REGOLE state_updates:
 - sub_location = posto specifico DENTRO la zona (es. "Taverna", "Mercato dei Tesori", "Ingresso Dungeon") — aggiornalo liberamente durante l'esplorazione
 - ui_events può contenere: "level_up", "skill_unlocked", "item_found"
 - Se il giocatore sblocca una nuova skill, includila in new_skills con: id, name, type, requirements, cost, effect
-- Includi "counters" in state_updates per eventi di combattimento:
-  "counters": { "dodges": N, "criticals": N, "skills_used_this_combat": ["skill_id1","skill_id2"] }
-  (riporta solo quelli > 0 del turno corrente; es. il giocatore schiva → "dodges": 1)
+- Per eventi di combattimento includi "battle_tags" al livello principale del JSON (NON dentro state_updates):
+  "battle_tags": ["player_dodge", "player_critical", "skill_used:skill_id1,skill_id2"]
+  Tag disponibili: "player_dodge" (schivata), "player_critical" (critico), "skill_used:id1,id2" (skill usate, ids separati da virgola)
+  Il server aggiorna i contatori in autonomia. Includi solo i tag del turno corrente.
 
 ## AGGIUNGERE OGGETTI ALLA BORSA (acquisti narrativi, drop, ricompense)
 USA SEMPRE "bag_add" (non state_updates.inventory.bag — sostituirebbe tutta la borsa):
@@ -601,27 +618,38 @@ app.post('/api/chat', async (req, res) => {
 
     // Modalità GM umano: salta l'AI, salva il messaggio, segnala al frontend
     if (gameState.gm_mode) {
-      gameState.session_log = [...(gameState.session_log || []).slice(-28), { role: 'user', content: message }];
+      gameState.session_log = [...(gameState.session_log || []).slice(-11), { role: 'user', content: message }];
       writeData('game_state.json', gameState);
       return res.json({ waiting_for_gm: true, state: { profile, inventory, skills, gameState } });
     }
 
-    const history = (gameState.session_log || []).slice(-28);
+    const history = (gameState.session_log || []).slice(-12);
     const systemPrompt = buildSystemPrompt(profile, inventory, skills, gameState);
 
-    const completion = await groq.chat.completions.create({
-      model: MODEL,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...history.map(h => ({ role: h.role, content: h.content })),
-        { role: 'user', content: message },
-      ],
-      temperature: 0.85,
-      max_tokens: 2000,
-      response_format: { type: 'json_object' },
-    });
+    // Build Gemini-compatible history (roles must strictly alternate user/model)
+    const geminiHistory = [];
+    for (const h of history) {
+      const role = h.role === 'assistant' ? 'model' : 'user';
+      const last = geminiHistory[geminiHistory.length - 1];
+      if (last && last.role === role) {
+        last.parts[0].text += '\n\n' + h.content;
+      } else {
+        geminiHistory.push({ role, parts: [{ text: h.content }] });
+      }
+    }
+    // History must end with 'model' before sendMessage adds the new user turn
+    if (geminiHistory.length > 0 && geminiHistory[geminiHistory.length - 1].role === 'user') {
+      geminiHistory.pop();
+    }
 
-    const rawContent = completion.choices[0]?.message?.content ?? '{}';
+    const geminiModel = genAI.getGenerativeModel({
+      model: MODEL,
+      systemInstruction: systemPrompt,
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.85, maxOutputTokens: 2048 },
+    });
+    const chat = geminiModel.startChat({ history: geminiHistory });
+    const geminiResult = await chat.sendMessage(message);
+    const rawContent = geminiResult.response.text();
     let parsed;
     try {
       parsed = JSON.parse(rawContent);
@@ -749,12 +777,24 @@ app.post('/api/chat', async (req, res) => {
     // ── Action counter tracking ───────────────────────────────────────────────
     const counters = profile.action_counters || {};
 
-    // Counters reported by AI (dodges, criticals, skills_used_this_combat)
-    const aiCounters = parsed.state_updates?.counters || {};
-    if (aiCounters.dodges)    counters.dodges    = (counters.dodges    || 0) + Number(aiCounters.dodges);
-    if (aiCounters.criticals) counters.criticals = (counters.criticals || 0) + Number(aiCounters.criticals);
-    if (Array.isArray(aiCounters.skills_used_this_combat)) {
-      counters.max_skills_in_combat = Math.max(counters.max_skills_in_combat || 0, aiCounters.skills_used_this_combat.length);
+    // battle_tags: AI emits semantic string tags, server increments counters
+    if (Array.isArray(parsed.battle_tags)) {
+      for (const tag of parsed.battle_tags) {
+        if (tag === 'player_dodge')    counters.dodges    = (counters.dodges    || 0) + 1;
+        if (tag === 'player_critical') counters.criticals = (counters.criticals || 0) + 1;
+        if (tag.startsWith('skill_used:')) {
+          const ids = tag.slice('skill_used:'.length).split(',').filter(Boolean);
+          counters.max_skills_in_combat = Math.max(counters.max_skills_in_combat || 0, ids.length);
+        }
+      }
+    } else if (parsed.state_updates?.counters) {
+      // Legacy fallback (old format)
+      const aiCounters = parsed.state_updates.counters;
+      if (aiCounters.dodges)    counters.dodges    = (counters.dodges    || 0) + Number(aiCounters.dodges);
+      if (aiCounters.criticals) counters.criticals = (counters.criticals || 0) + Number(aiCounters.criticals);
+      if (Array.isArray(aiCounters.skills_used_this_combat)) {
+        counters.max_skills_in_combat = Math.max(counters.max_skills_in_combat || 0, aiCounters.skills_used_this_combat.length);
+      }
     }
 
     // Enemy defeated (combat just ended)
@@ -861,12 +901,15 @@ app.post('/api/chat', async (req, res) => {
       writeData('skills_library.json', skills);
     }
 
+    // Auto-save backup on level_up or unique event completion
+    autoBackup(profile, gameState, uiEvents);
+
     // Persist
     writeData('player_profile.json', profile);
     writeData('inventory.json', inventory);
 
     gameState.session_log = [
-      ...(gameState.session_log || []).slice(-27),
+      ...(gameState.session_log || []).slice(-10),
       { role: 'user', content: message },
       { role: 'assistant', content: narrative },
     ];
@@ -889,8 +932,8 @@ app.post('/api/chat', async (req, res) => {
     console.error('Chat error:', err?.message ?? err);
     const status = err?.status === 429 ? 429 : err?.status === 401 ? 401 : 500;
     const msg = {
-      429: 'Rate limit Groq raggiunto. Aspetta qualche secondo e riprova.',
-      401: 'API key Groq non valida. Controlla il file .env.',
+      429: 'Rate limit Gemini raggiunto. Aspetta qualche secondo e riprova.',
+      401: 'API key Gemini non valida. Controlla il file .env.',
     };
     res.status(status).json({ error: msg[status] ?? err.message });
   }
@@ -925,7 +968,7 @@ app.post('/api/reset', (req, res) => {
       writeData('skills_library.json', skills);
     } catch { /* non-critical */ }
     writeData('inventory.json', {
-      equipped: { weapon: null, offhand: null, head: null, chest: null, legs: null, boots: null, accessory_1: null, accessory_2: null },
+      equipped: { weapon: null, offhand: null, head: null, chest: null, legs: null, boots: null, hands: null, accessory_1: null, accessory_2: null },
       stat_bonuses_from_equipment: { STR: 0, DEX: 0, AGI: 0, TEC: 0, VIT: 0, LUC: 0, HP_bonus: 0, MP_bonus: 0, STM_bonus: 0 },
       bag: [],
     });
@@ -1199,7 +1242,7 @@ app.post('/api/appraise-item', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/shop/generate — genera listino negozio via Groq
+// POST /api/shop/generate — genera listino negozio via Gemini
 app.post('/api/shop/generate', async (req, res) => {
   try {
     const profile   = readData('player_profile.json');
@@ -1221,15 +1264,12 @@ Rispondi con json valido:
   ]
 }`;
 
-    const completion = await groq.chat.completions.create({
+    const shopModel = genAI.getGenerativeModel({
       model: MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.7,
-      max_tokens: 1200,
-      response_format: { type: 'json_object' },
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.7, maxOutputTokens: 1200 },
     });
-
-    const raw = completion.choices[0]?.message?.content ?? '{}';
+    const shopResult = await shopModel.generateContent(prompt);
+    const raw = shopResult.response.text();
     const parsed = JSON.parse(raw);
     const shop = {
       shop_name: parsed.shop_name || 'Negozio',
