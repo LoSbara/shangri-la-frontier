@@ -263,8 +263,27 @@ function dispatchUIEvents(events) {
       overlay.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:9999;';
       document.body.appendChild(overlay);
       setTimeout(() => overlay.remove(), 600);
+    } else if (ev.startsWith('PART_BROKEN_')) {
+      const part = ev.slice('PART_BROKEN_'.length).toLowerCase();
+      showPartBreakToast(part);
+    } else if (ev === 'loot_obtained') {
+      // Piccola animazione sull'icona borsa se presente
+      const bagEl = document.getElementById('bag-list');
+      if (bagEl) { bagEl.classList.add('loot-flash'); setTimeout(() => bagEl.classList.remove('loot-flash'), 800); }
+    } else if (ev === 'puzzle_solved') {
+      showPartBreakToast('puzzle risolto', '#3b82f6', '🧩');
     }
   });
+}
+
+function showPartBreakToast(part, color = '#ef4444', icon = '💥') {
+  const el = document.createElement('div');
+  el.className = 'part-break-toast';
+  el.style.setProperty('--toast-color', color);
+  el.innerHTML = `${icon} <strong>${part.toUpperCase()}</strong>`;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 2500);
 }
 
 async function handleSend() {

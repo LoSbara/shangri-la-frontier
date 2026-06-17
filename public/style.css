@@ -2382,3 +2382,32 @@ body.ui-shake { animation: ui-shake 0.7s ease-in-out; }
   40%     { background: rgba(34, 197, 94, 0.22); }
 }
 .ui-heal-flash { animation: ui-heal-flash 0.55s ease forwards; }
+
+/* ── Part Break Toast ───────────────────────────────────────────────────────── */
+.part-break-toast {
+  --toast-color: #ef4444;
+  position: fixed;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.75);
+  background: var(--toast-color);
+  color: #fff;
+  padding: 10px 22px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  opacity: 0;
+  transition: opacity 0.25s, transform 0.25s;
+  z-index: 10000;
+  pointer-events: none;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+.part-break-toast.show {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+@keyframes loot-flash { 0%,100%{background:transparent} 50%{background:rgba(234,179,8,.15)} }
+.loot-flash { animation: loot-flash 0.8s ease; }

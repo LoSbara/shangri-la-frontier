@@ -1,7 +1,7 @@
 # Shangri-La Frontier — Stato del Progetto
 
 > Documento di riferimento completo per discussioni sull'avanzamento del progetto.  
-> Ultimo aggiornamento: 2026-06-17 (sessione 18 — migrazione DeepSeek, rolling window, battle tags engine completo, calcolatore combattimento, world state persistence, HUD cooldown)
+> Ultimo aggiornamento: 2026-06-17 (sessione 19 — Drop Tables LUC-based, Dungeon Trap/Puzzle pre-computation, Part Break System con debuff anatomici)
 
 ---
 
@@ -64,6 +64,7 @@ Shanfro/
     ├── unique_events.json    # 8 eventi unici one-shot
     ├── unique_items.json     # 10 oggetti leggendari/epici
     ├── unique_monsters.json  # 8 boss unici
+    ├── monsters_catalog.json # Drop table e parti anatomiche (dati statici design, separati da bestiary.json)
     ├── world/               # Lore zone statiche (es. bosco_novizi.json)
     ├── save/                # World state per-player mutable ([player_id]_world_state.json)
     ├── backups/             # Snapshot automatici su level_up / unique event
@@ -720,6 +721,14 @@ I template literal annidati con backtick dentro `${}` chiudono prematuramente il
 - ✅ **COMBAT_HIT Calculator** (Mod. 1) — tag `COMBAT_HIT_PLAYER_*` e `COMBAT_HIT_ENEMY_*`; danno calcolato da stats reali (Monster_STR, Player_VIT, skill multiplier, resistenza%)
 - ✅ **World State Persistence** (Mod. 2) — `/data/save/[player_id]_world_state.json`; init da file statico; aggiornamento `is_dead:true` quando HP nemico → 0; filtro liveMonsters nel Level 2
 - ✅ **UI HUD Cooldown** (Mod. 3) — `renderSkills(loadout, maxSlots, cooldowns)` con overlay `XTurni`; `updatePlayerHUD` function; CSS `.skill-on-cd` + `.skill-cd-overlay`
+
+**Completati in sessione 19:**
+- ✅ **Drop Tables deterministiche (LUC-based)** — `rollDropTable()` + `getMonsterCatalogEntry()`: formula `chanceEff = min(95, chance × (1 + LUC/100))`; drop iniettati direttamente in `inventory.bag`; evento `[🎁 LOOT]` in `pending_narrative_events` per narrazione al turno successivo; UI event `loot_obtained` con flash animazione borsa
+- ✅ **Dungeon Trap/Puzzle pre-computation** — check AGI (trappole: `min(95, max(5, AGI×4))`) e TEC (puzzle: `TEC×5`) eseguiti PRIMA della chiamata AI; risultati iniettati in `serverDirectives` per narrazione coerente; `preUIEvents[]` per `SCREEN_SHAKE`/`RED_FLASH` da falimenti; `rooms_triggered` con chiave compound `[dungeon_id]:[room_id]`
+- ✅ **Part Break System** — tag esteso `COMBAT_HIT_ENEMY_[monster_id]_[body_part]_[skill_id]`; parsing a due passi (trova skill_id dal suffisso più lungo, poi body_part tra i token rimanenti vs keys di `enemy.parts`); 50% danno attacco alla parte; al break: `broken: true`, debuff stat permanente applicato all'enemy, `PART_BROKEN_*` UI event, evento `pending_narrative_events` per narrazione obbligatoria turno corrente
+- ✅ **`monsters_catalog.json`** — file dati design separato da `bestiary.json`; 5 mostri (Goblin Esploratore, Melma Verde, Lupo Selvatico, Goblin Guerriero, Orso delle Caverne) con drop table e parti anatomiche
+- ✅ **`pending_narrative_events`** — array persistito in `game_state`; iniettato all'inizio del turno successivo in `serverDirectives`; svuotato immediatamente dopo l'iniezione
+- ✅ **`showPartBreakToast()`** — toast animato CSS con colore/icona configurabili; riutilizzato anche per `puzzle_solved`; CSS `.part-break-toast` con transizione scale+opacity
 
 **Completati in sessione 14:**
 - ✅ Creazione personaggio step-aware — `buildSystemPrompt` usa `gmTurns` per emettere PASSO 1 / PASSO 2 / PASSO 3

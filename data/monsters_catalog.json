@@ -1,0 +1,71 @@
+{
+  "_note": "Dati statici di design: drop table e parti anatomiche. Separati da bestiary.json (tracking runtime).",
+  "monsters": [
+    {
+      "name": "Goblin Esploratore",
+      "drop_table": [
+        { "item_id": "orecchio_goblin",     "name": "Orecchio di Goblin",    "chance": 70, "type": "misc",    "price": 8,  "rarity": "comune" },
+        { "item_id": "moneta_arrugginita",  "name": "Moneta Arrugginita",    "chance": 45, "type": "misc",    "price": 3,  "rarity": "comune" },
+        { "item_id": "lama_arrugginita",    "name": "Lama Arrugginita",      "chance": 12, "type": "weapon",  "price": 25, "rarity": "comune", "slot": "weapon", "stat_bonus": { "STR": 1 } },
+        { "item_id": "stivale_goblin_sx",   "name": "Stivale Goblin (S)",    "chance": 5,  "type": "misc",    "price": 12, "rarity": "comune", "appraised": false }
+      ],
+      "parts": {
+        "arm":  { "hp": 20, "break_debuff": { "STR": 3 } },
+        "leg":  { "hp": 15, "break_debuff": { "AGI": 2 } }
+      }
+    },
+    {
+      "name": "Melma Verde",
+      "drop_table": [
+        { "item_id": "nucleo_melma",       "name": "Nucleo di Melma",         "chance": 85, "type": "material", "price": 8,  "rarity": "comune" },
+        { "item_id": "acido_melma_verde",  "name": "Acido di Melma Verde",    "chance": 30, "type": "material", "price": 28, "rarity": "comune" },
+        { "item_id": "cristallo_viscido",  "name": "Cristallo Viscido",       "chance": 8,  "type": "material", "price": 60, "rarity": "non_comune", "appraised": false }
+      ],
+      "parts": {
+        "core": { "hp": 12, "break_debuff": { "resistenza": 10 } }
+      }
+    },
+    {
+      "name": "Lupo Selvatico",
+      "drop_table": [
+        { "item_id": "pelo_lupo",          "name": "Pelo di Lupo",            "chance": 75, "type": "material", "price": 12, "rarity": "comune" },
+        { "item_id": "zanna_lupo",         "name": "Zanna di Lupo",           "chance": 50, "type": "material", "price": 20, "rarity": "comune" },
+        { "item_id": "artiglio_lupo",      "name": "Artiglio di Lupo",        "chance": 20, "type": "material", "price": 40, "rarity": "non_comune" },
+        { "item_id": "cuore_lupo_alpha",   "name": "Cuore di Lupo (grezzo)",  "chance": 5,  "type": "misc",     "price": 80, "rarity": "raro", "appraised": false }
+      ],
+      "parts": {
+        "tail": { "hp": 25, "break_debuff": { "AGI": 4 } },
+        "jaw":  { "hp": 20, "break_debuff": { "STR": 3 } },
+        "leg":  { "hp": 18, "break_debuff": { "AGI": 2 } }
+      }
+    },
+    {
+      "name": "Goblin Guerriero",
+      "drop_table": [
+        { "item_id": "orecchio_goblin",     "name": "Orecchio di Goblin",     "chance": 65, "type": "misc",    "price": 8,  "rarity": "comune" },
+        { "item_id": "elmo_goblin_rotto",   "name": "Elmo Goblin Rotto",      "chance": 25, "type": "misc",    "price": 18, "rarity": "comune", "appraised": false },
+        { "item_id": "spada_corta_goblin",  "name": "Spada Corta Goblin",     "chance": 15, "type": "weapon",  "price": 45, "rarity": "comune", "slot": "weapon", "stat_bonus": { "STR": 2 } },
+        { "item_id": "gemma_verde_grezza",  "name": "Gemma Verde Grezza",     "chance": 4,  "type": "material","price": 120,"rarity": "non_comune" }
+      ],
+      "parts": {
+        "arm":  { "hp": 30, "break_debuff": { "STR": 4 } },
+        "leg":  { "hp": 22, "break_debuff": { "AGI": 3 } },
+        "head": { "hp": 18, "break_debuff": { "AGI": 2, "STR": 1 } }
+      }
+    },
+    {
+      "name": "Orso delle Caverne",
+      "drop_table": [
+        { "item_id": "pelliccia_orso",      "name": "Pelliccia d'Orso",       "chance": 80, "type": "material", "price": 35, "rarity": "comune" },
+        { "item_id": "artiglio_orso",       "name": "Artiglio d'Orso",        "chance": 55, "type": "material", "price": 50, "rarity": "comune" },
+        { "item_id": "dente_orso",          "name": "Dente d'Orso",           "chance": 30, "type": "material", "price": 40, "rarity": "non_comune" },
+        { "item_id": "bile_orso_ferox",     "name": "Bile Ferox (grezzo)",     "chance": 8,  "type": "material", "price": 150,"rarity": "raro", "appraised": false }
+      ],
+      "parts": {
+        "paw":  { "hp": 40, "break_debuff": { "STR": 5 } },
+        "leg":  { "hp": 35, "break_debuff": { "AGI": 4 } },
+        "head": { "hp": 50, "break_debuff": { "STR": 3, "AGI": 2 } }
+      }
+    }
+  ]
+}

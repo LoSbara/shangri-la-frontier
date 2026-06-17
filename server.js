@@ -509,20 +509,31 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
         continue;
       }
 
-      // ── COMBAT_HIT_ENEMY_[monster_id]_[skill_id] ─────────────────────────────
-      // Il server calcola il danno da STR/TEC + skill_multiplier e resistenza nemica
+      // ── COMBAT_HIT_ENEMY_[monster_id]_[body_part?]_[skill_id] ───────────────
+      // Il server calcola danno globale + parziale (body_part), gestisce Part Break
       if (tag.startsWith('COMBAT_HIT_ENEMY_')) {
         const enemy = gameState.current_enemy;
         if (!enemy?.hp) continue;
-        // Identifica skill_id scorrendo il suffisso dal fondo
-        const suffix = tag.slice('COMBAT_HIT_ENEMY_'.length);
-        const parts  = suffix.split('_');
-        let skillDef = null;
-        for (let j = 1; j < parts.length; j++) {
-          const tryId = parts.slice(j).join('_');
+        const suffix  = tag.slice('COMBAT_HIT_ENEMY_'.length);
+        const tokens  = suffix.split('_');
+
+        // Identifica skill_id dal fondo (longest suffix match)
+        let skillDef = null, skillStartIdx = tokens.length;
+        for (let j = 1; j < tokens.length; j++) {
+          const tryId = tokens.slice(j).join('_');
           const found = skills?.skills?.find(s => s.id === tryId && (s.unlocked_by_default || s.learned));
-          if (found) { skillDef = found; break; }
+          if (found) { skillDef = found; skillStartIdx = j; break; }
         }
+
+        // Identifica body_part: cerca tra i token contro le chiavi di enemy.parts
+        let bodyPart = null;
+        const enemyParts = enemy.parts || {};
+        const enemyPartKeys = Object.keys(enemyParts);
+        for (let k = 1; k < skillStartIdx; k++) {
+          if (enemyPartKeys.includes(tokens[k])) { bodyPart = tokens[k]; break; }
+        }
+
+        // Calcola danno globale
         const playerSTR  = totalStat(profile, inventory, 'STR');
         const playerTEC  = totalStat(profile, inventory, 'TEC');
         const baseAtk    = skillDef ? (skillDef.damage_type === 'tec' ? playerTEC : playerSTR) : playerSTR;
@@ -531,7 +542,30 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
         const rawDmg     = Math.floor(baseAtk * skillMult);
         const damage     = Math.max(1, rawDmg - Math.floor(rawDmg * resistenza / 100));
         enemy.hp.current = Math.max(0, enemy.hp.current - damage);
-        console.log(`[COMBAT→Enemy] PlayerATK:${rawDmg} − Res:${resistenza}% = ${damage} danno (EnemyHP: ${enemy.hp.current}/${enemy.hp.max})`);
+        console.log(`[COMBAT→Enemy] ATK:${rawDmg} − Res:${resistenza}% = ${damage} danno (HP: ${enemy.hp.current}/${enemy.hp.max})${bodyPart ? ' → parte: ' + bodyPart : ''}`);
+
+        // Part Break: 50% del danno alla parte bersagliata
+        if (bodyPart && enemyParts[bodyPart] && !enemyParts[bodyPart].broken) {
+          const partDmg = Math.max(1, Math.floor(damage * 0.5));
+          enemyParts[bodyPart].hp = Math.max(0, enemyParts[bodyPart].hp - partDmg);
+
+          if (enemyParts[bodyPart].hp <= 0) {
+            enemyParts[bodyPart].broken = true;
+            const debuff = enemyParts[bodyPart].break_debuff;
+            if (debuff) {
+              enemy.stats = enemy.stats || {};
+              for (const [stat, reduction] of Object.entries(debuff)) {
+                enemy.stats[stat] = Math.max(0, (enemy.stats[stat] || 0) - reduction);
+              }
+            }
+            const eventKey = `PART_BROKEN_${bodyPart.toUpperCase()}`;
+            if (!uiEvents.includes(eventKey)) uiEvents.push(eventKey);
+            const debuffDesc = debuff ? ' (debuff: ' + Object.entries(debuff).map(([s,v]) => `${s}-${v}`).join(', ') + ')' : '';
+            console.log(`[PartBreak] ${bodyPart} di ${enemy.name} distrutto!${debuffDesc}`);
+            gameState.pending_narrative_events = gameState.pending_narrative_events || [];
+            gameState.pending_narrative_events.push(`[💥 PART BREAK] La parte "${bodyPart}" di ${enemy.name} è stata distrutta${debuffDesc}. DESCRIVI obbligatoriamente la mutilazione/frattura nel turno corrente.`);
+          }
+        }
         continue;
       }
 
@@ -599,6 +633,41 @@ function tickCooldowns(profile) {
     if (cds[id] > 0) cds[id]--;
   }
   profile.skill_cooldowns = cds;
+}
+
+// ─── Monsters Catalog ─────────────────────────────────────────────────────────
+
+function getMonsterCatalogEntry(name) {
+  try {
+    const catalog = readData('monsters_catalog.json');
+    return (catalog.monsters || []).find(m => m.name === name) || null;
+  } catch { return null; }
+}
+
+// Lancia la drop table del nemico con modificatore LUC del giocatore.
+// Restituisce array bag-ready pronto per inventory.bag.push(...).
+function rollDropTable(profile, inventory, enemyName) {
+  const catalogEntry = getMonsterCatalogEntry(enemyName);
+  if (!catalogEntry?.drop_table?.length) return [];
+  const luc = totalStat(profile, inventory, 'LUC');
+  const drops = [];
+  for (const drop of catalogEntry.drop_table) {
+    const chanceEff = Math.min(95, drop.chance * (1 + luc / 100));
+    if (Math.random() * 100 < chanceEff) {
+      drops.push({
+        id:         drop.item_id,
+        name:       (drop.name || drop.item_id.replace(/_/g, ' ')),
+        type:       drop.type        || 'misc',
+        slot:       drop.slot        || null,
+        stat_bonus: drop.stat_bonus  || {},
+        rarity:     drop.rarity      || 'comune',
+        price:      drop.price       || 10,
+        quantity:   drop.quantity    || 1,
+        appraised:  drop.appraised   !== false,
+      });
+    }
+  }
+  return drops;
 }
 
 function sanitizeGMResponse(raw) {
@@ -850,8 +919,10 @@ BATTLE TAGS — il server li elabora matematicamente come fonte di verità (igno
     "QUEST_PROGRESS_[obj]_N"   → avanza obiettivo N volte (es. "QUEST_PROGRESS_kill_goblin_1")
   Calcolatore combattimento autorevole (danno calcolato da stats, non da AI — usa QUESTI invece di PLAYER_HP_-N / ENEMY_HP_-N in combattimento):
     "COMBAT_HIT_PLAYER_[monster_id]_[attack_type]" → server calcola Danno = max(1, Monster_STR − floor(Player_VIT/3)) e lo sottrae agli HP del player
-    "COMBAT_HIT_ENEMY_[monster_id]_[skill_id]"     → server calcola Danno = max(1, floor(STR×mult) × (1−resistenza%)) e lo sottrae agli HP del nemico
-    Esempi: "COMBAT_HIT_PLAYER_goblin_artiglio"  |  "COMBAT_HIT_ENEMY_goblin_fendente_rapido"
+    "COMBAT_HIT_ENEMY_[monster_id]_[skill_id]"     → server calcola danno globale e lo sottrae agli HP del nemico
+    "COMBAT_HIT_ENEMY_[monster_id]_[body_part]_[skill_id]" → come sopra + 50% danno alla parte anatomica; se HP parte ≤ 0: PART BREAK con debuff permanente
+    Parti disponibili: current_enemy.parts — usa ESATTAMENTE le chiavi presenti (es. tail, horn, leg, jaw, wing, arm, shell, core)
+    Esempi: "COMBAT_HIT_PLAYER_goblin_artiglio" | "COMBAT_HIT_ENEMY_goblin_fendente_rapido" | "COMBAT_HIT_ENEMY_lupo_tail_fendente_rapido"
 UI EVENTS — effetti visivi istantanei nel client:
   "SCREEN_SHAKE"  → scuote lo schermo (colpo subito, esplosione)
   "RED_FLASH"     → flash rosso (danno grave)
@@ -1118,6 +1189,16 @@ app.post('/api/chat', (req, res) => {
       serverDirectives += `[⏱ TICK EFFETTI STATO] A inizio turno i seguenti effetti hanno agito automaticamente: ${tickLines}. Riflettilo nella narrazione prima dell'azione del giocatore.\n\n`;
     }
 
+    // Pending narrative events del turno precedente (part break, drop, ecc.)
+    const pendingNarrEvents = gameState.pending_narrative_events || [];
+    if (pendingNarrEvents.length > 0) {
+      serverDirectives += pendingNarrEvents.join('\n') + '\n\n';
+    }
+    gameState.pending_narrative_events = []; // svuota: eventi nuovi saranno aggiunti questo turno
+
+    // UI events pre-AI: trappole/puzzle dungeon calcolati prima della risposta
+    const preUIEvents = [];
+
     const triggeredEvent = checkUniqueEventTriggers(profile, inventory, gameState);
     if (triggeredEvent) {
       serverDirectives +=
@@ -1136,8 +1217,61 @@ app.post('/api/chat', (req, res) => {
         `[🗺️ DUNGEON: ${dungeon.name} — Stanza: "${room.name}" (${room.id}) — tipo: ${room.type}]\n` +
         `${room.description_blueprint}\n` +
         `Stanze raggiungibili: ${connList}\n`;
-      if (room.type === 'trap')   serverDirectives += `Richiedi un check di ${room.trap_stat || 'AGI'} (DC ${room.trap_dc || 12}). Fallire infligge ${room.trap_damage || 15} danni.\n`;
-      if (room.type === 'puzzle') serverDirectives += `Richiedi un check di ${room.puzzle_stat || 'TEC'} (DC ${room.puzzle_dc || 12}) per risolvere il puzzle senza conseguenze.\n`;
+      // ── Pre-computation trappola (check AGI server-side prima dell'AI) ────────
+      if (room.type === 'trap') {
+        const triggerKey = `${gameState.current_dungeon_id}:${room.id}`;
+        const alreadyTriggered = (gameState.rooms_triggered || []).includes(triggerKey);
+        if (!alreadyTriggered) {
+          const agiTotal     = totalStat(profile, inventory, 'AGI');
+          const successChance = Math.min(95, Math.max(5, agiTotal * 4));
+          const roll          = Math.random() * 100;
+          const trapSuccess   = roll < successChance;
+          if (trapSuccess) {
+            serverDirectives += `[✅ TRAPPOLA SCHIVATA] Check AGI:${agiTotal} (${successChance.toFixed(0)}% successo, roll:${roll.toFixed(0)}). Il giocatore percepisce ed evita la trappola. Descrivi i riflessi pronti.\n`;
+          } else {
+            const damage = room.trap_damage || 15;
+            profile.stats.HP.current = Math.max(0, profile.stats.HP.current - damage);
+            if (room.trap_status) {
+              profile.status_effects = profile.status_effects || [];
+              profile.status_effects.push({
+                id: room.trap_status, name: room.trap_status.replace(/_/g, ' '),
+                type: 'debuff', turns_remaining: 3, value: 5, icon: '⚠', color: '#ef4444',
+              });
+            }
+            serverDirectives += `[⚠ TRAPPOLA SCATTATA] Check AGI:${agiTotal} (${successChance.toFixed(0)}% successo, roll:${roll.toFixed(0)}) → FALLITO. Trappola attivata: -${damage} HP${room.trap_status ? ', stato: ' + room.trap_status : ''}. HP ora: ${profile.stats.HP.current}/${profile.stats.HP.max}. NARRA la trappola che esplode e il danno subito.\n`;
+            preUIEvents.push('SCREEN_SHAKE', 'RED_FLASH');
+          }
+          gameState.rooms_triggered = [...(gameState.rooms_triggered || []), triggerKey];
+        } else {
+          serverDirectives += `[🗺️ TRAPPOLA GIÀ SCATTATA] La trappola di questa stanza è già stata attivata in precedenza.\n`;
+        }
+      }
+      // ── Pre-computation puzzle (check TEC o oggetto chiave) ─────────────────
+      if (room.type === 'puzzle') {
+        const triggerKey = `${gameState.current_dungeon_id}:${room.id}`;
+        const alreadySolved = (gameState.rooms_triggered || []).includes(triggerKey);
+        if (!alreadySolved) {
+          const keyItem  = room.key_item;
+          const hasKey   = keyItem && (inventory.bag || []).some(it => it.id === keyItem);
+          if (hasKey) {
+            serverDirectives += `[🔑 PUZZLE RISOLTO] Il giocatore possiede "${keyItem}" → puzzle risolto automaticamente. Narra l'uso elegante dell'oggetto chiave.\n`;
+            gameState.rooms_triggered = [...(gameState.rooms_triggered || []), triggerKey];
+            preUIEvents.push('puzzle_solved');
+          } else {
+            const tecTotal      = totalStat(profile, inventory, 'TEC');
+            const successChance = Math.min(90, Math.max(10, tecTotal * 5));
+            const roll          = Math.random() * 100;
+            const puzzleSolved  = roll < successChance;
+            serverDirectives += `[🧩 PUZZLE] Check TEC:${tecTotal} (${successChance.toFixed(0)}% successo, roll:${roll.toFixed(0)}) → ${puzzleSolved ? 'SUPERATO. Risolto con l\'intelletto. Narra la soluzione brillante.' : 'FALLITO. Puzzle irrisolto — narra la frustrazione e le conseguenze (nessun premio, possibile piccolo danno).'}\n`;
+            if (puzzleSolved) {
+              gameState.rooms_triggered = [...(gameState.rooms_triggered || []), triggerKey];
+              preUIEvents.push('puzzle_solved');
+            }
+          }
+        } else {
+          serverDirectives += `[🧩 PUZZLE GIÀ RISOLTO] Il puzzle di questa stanza è già stato superato.\n`;
+        }
+      }
       if (room.type === 'boss')   serverDirectives += `Stanza boss — descrivi l'ingresso in modo cinematico e avvia il combattimento.\n`;
       if (room.type === 'reward') serverDirectives += `Stanza ricompensa — usa bag_add per assegnare un tesoro adeguato al livello del dungeon.\n`;
       serverDirectives +=
@@ -1266,6 +1400,11 @@ app.post('/api/chat', (req, res) => {
     const narrative = parsed.narrative;
     const uiEvents  = parsed.ui_events;
 
+    // Inietta eventi pre-AI (trappole/puzzle calcolati prima della risposta)
+    if (preUIEvents.length > 0) {
+      preUIEvents.forEach(e => { if (!uiEvents.includes(e)) uiEvents.push(e); });
+    }
+
     // Snapshot pre-update
     const prevCombatActive  = gameState.combat_active;
     const prevEnemyName     = gameState.current_enemy?.name     || null;
@@ -1321,6 +1460,28 @@ app.post('/api/chat', (req, res) => {
       gameState.rooms_visited = gameState.rooms_visited || [];
       if (!gameState.rooms_visited.includes(gameState.current_room_id)) {
         gameState.rooms_visited.push(gameState.current_room_id);
+      }
+    }
+
+    // Inizializza parti anatomiche quando inizia un nuovo combattimento
+    if (!prevCombatActive && gameState.combat_active && gameState.current_enemy && !gameState.current_enemy.parts) {
+      const catEntry = getMonsterCatalogEntry(gameState.current_enemy.name);
+      if (catEntry?.parts) {
+        const PART_DEBUFF_DEFAULTS = {
+          tail: {AGI:3}, horn: {STR:3}, leg: {AGI:2}, wing: {AGI:4},
+          arm:  {STR:2}, eye:  {AGI:2}, claw: {STR:2}, shell: {resistenza:10},
+          core: {STR:5,AGI:5}, jaw: {STR:3}, paw: {AGI:2},
+        };
+        gameState.current_enemy.parts = {};
+        for (const [partName, partData] of Object.entries(catEntry.parts)) {
+          gameState.current_enemy.parts[partName] = {
+            hp:           partData.hp,
+            hp_max:       partData.hp,
+            broken:       false,
+            break_debuff: partData.break_debuff || PART_DEBUFF_DEFAULTS[partName] || null,
+          };
+        }
+        console.log(`[PartBreak] Init parti per ${gameState.current_enemy.name}: ${Object.keys(gameState.current_enemy.parts).join(', ')}`);
       }
     }
 
@@ -1471,6 +1632,34 @@ app.post('/api/chat', (req, res) => {
       }
       if (profile.stats.HP.current > 0 && profile.stats.HP.current / profile.stats.HP.max < 0.10) {
         counters.near_death_survives = (counters.near_death_survives || 0) + 1;
+      }
+
+      // ── Drop Table deterministico (LUC-based) ──────────────────────────────
+      const drops = rollDropTable(profile, inventory, prevEnemyName);
+      if (drops.length > 0) {
+        inventory.bag = inventory.bag || [];
+        inventory.bag.push(...drops);
+        const dropNames = drops.map(d => d.name).join(', ');
+        console.log(`[DropTable] ${prevEnemyName} → drop: ${dropNames}`);
+        gameState.pending_narrative_events = gameState.pending_narrative_events || [];
+        gameState.pending_narrative_events.push(`[🎁 LOOT] Hai sconfitto ${prevEnemyName}: bottino ottenuto — ${dropNames}. Menziona gli oggetti caduti nel prossimo turno.`);
+        if (!uiEvents.includes('loot_obtained')) uiEvents.push('loot_obtained');
+      }
+
+      // Belt-and-suspenders: mark enemy dead in world state anche se AI ha già
+      // impostato current_enemy:null (check #1 in worldStatePath non avrebbe sparato)
+      if (worldStatePath) {
+        try {
+          const ws       = JSON.parse(fs.readFileSync(worldStatePath, 'utf-8'));
+          const monsters = ws.available_monsters || [];
+          const mIdx     = monsters.findIndex(m => m.name === prevEnemyName);
+          if (mIdx >= 0 && !monsters[mIdx].is_dead) {
+            monsters[mIdx].is_dead = true;
+            ws.available_monsters  = monsters;
+            fs.writeFileSync(worldStatePath, JSON.stringify(ws, null, 2));
+            console.log(`[WorldState] ${prevEnemyName} segnato is_dead:true (combat end)`);
+          }
+        } catch { /* non-critical */ }
       }
     }
     if (gameState.current_enemy?.revealed && !prevEnemyRevealed && prevEnemyName) {
