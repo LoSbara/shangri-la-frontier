@@ -147,6 +147,55 @@ async function init() {
   }
 }
 
+// ── UI Lock (Modulo 3: anti rage-click) ──────────────────────────────────────
+function lockUI() {
+  document.body.classList.add('ui-locked');
+  chatInput.disabled = true;
+  sendBtn.disabled   = true;
+}
+
+function unlockUI() {
+  document.body.classList.remove('ui-locked');
+  enableInput();
+}
+
+// ── Sync Toast (Modulo 3: SSE recovery) ──────────────────────────────────────
+function showSyncToast(msg) {
+  let toast = document.getElementById('sync-error-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'sync-error-toast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg || 'Errore di sincronizzazione. Ripristino del collegamento con il server centrale…';
+  toast.classList.add('visible');
+  setTimeout(() => toast.classList.remove('visible'), 5000);
+}
+
+// ── syncHUD (Modulo 1: ripristino HUD da /api/sync) ──────────────────────────
+// Riallinea l'interfaccia allo stato server senza toccare la chat history.
+// Chiamata: (a) fine boot in init(), (b) recovery dopo timeout SSE.
+async function syncHUD(quiet = false) {
+  try {
+    const data = await apiFetch('/sync');
+    if (!data.profile) return;
+    // Aggiorna currentState conservando skills (non restituita da /api/sync)
+    currentState = {
+      ...(currentState || {}),
+      profile:   data.profile,
+      inventory: data.inventory,
+      gameState: data.gameState,
+    };
+    updateUI(currentState);
+    updatePlayerHUD(data.profile, data.inventory, data.gameState);
+    renderTacticalTension(data.gameState?.tactical_tension || 0, data.gameState?.combat_active);
+    renderParty(data.gameState?.party || []);
+    if (!quiet) console.log('[syncHUD] HUD riallineato allo stato server (turn_id:', data.gameState?.current_turn_id, ')');
+  } catch (e) {
+    if (!quiet) console.error('[syncHUD] Fallito:', e.message);
+  }
+}
+
 // ── API ───────────────────────────────────────────────────────────────────────
 async function apiFetch(path, opts = {}) {
   const res = await fetch(API + path, opts);
@@ -158,10 +207,12 @@ async function apiFetch(path, opts = {}) {
 }
 
 // ── Send ──────────────────────────────────────────────────────────────────────
+const SSE_TOKEN_TIMEOUT_MS = 15_000; // 15 s senza token → recovery
+
 async function sendToGM(message) {
   if (busy) return;
   busy = true;
-  disableInput();
+  lockUI(); // Modulo 3: blocca tutti i pulsanti di interazione al primo click
 
   // Crea subito la bolla GM per lo streaming progressivo
   const div = document.createElement('div');
@@ -172,15 +223,32 @@ async function sendToGM(message) {
   const bodyDiv = div.querySelector('.msg-stream-body');
   bodyDiv.innerHTML = '<div class="typing-dots"><span></span><span></span><span></span></div>';
 
-  let keepBusy = false;
+  let keepBusy    = false;
   let narrativeText = '';
   let soundPlayed = false;
+  let sseTimedOut = false;
+  let tokenWatchdogId = null;
+  let timeoutReject   = null;
+
+  // Modulo 2: calcola il turn_id atteso (current + 1) per l'idempotency server-side
+  const turn_id = (currentState?.gameState?.current_turn_id || 0) + 1;
+
+  // Promessa che si rigetta al timeout SSE — usata in Promise.race con reader.read()
+  const sseTimeoutPromise = new Promise((_, reject) => { timeoutReject = reject; });
+
+  function resetTokenWatchdog() {
+    clearTimeout(tokenWatchdogId);
+    tokenWatchdogId = setTimeout(() => {
+      sseTimedOut = true;
+      timeoutReject(new Error('SSE_TIMEOUT'));
+    }, SSE_TOKEN_TIMEOUT_MS);
+  }
 
   try {
     const response = await fetch(API + '/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, turn_id }),
     });
 
     if (!response.ok) {
@@ -188,12 +256,23 @@ async function sendToGM(message) {
       throw new Error(err.error || 'Errore server');
     }
 
-    const reader = response.body.getReader();
+    const reader  = response.body.getReader();
     const decoder = new TextDecoder();
     let sseBuffer = '';
 
+    resetTokenWatchdog(); // avvia il primo watchdog prima del primo read
+
     while (true) {
-      const { done, value } = await reader.read();
+      let readResult;
+      try {
+        // Modulo 3: gara tra il prossimo chunk e il timeout — vince il più veloce
+        readResult = await Promise.race([reader.read(), sseTimeoutPromise]);
+      } catch (e) {
+        // Il timeout ha vinto → uscita controllata dal catch esterno
+        throw e;
+      }
+
+      const { done, value } = readResult;
       if (done) break;
       sseBuffer += decoder.decode(value, { stream: true });
 
@@ -206,6 +285,7 @@ async function sendToGM(message) {
         try { data = JSON.parse(part.slice(6)); } catch { continue; }
 
         if (data.type === 'token') {
+          resetTokenWatchdog(); // reset watchdog ad ogni token ricevuto
           if (!soundPlayed) { playSound('message'); soundPlayed = true; }
           narrativeText += data.text;
           bodyDiv.innerHTML = marked.parse(narrativeText);
@@ -216,6 +296,7 @@ async function sendToGM(message) {
           keepBusy = true;
           showGMRespondPanel();
         } else if (data.type === 'done') {
+          clearTimeout(tokenWatchdogId); // stream concluso — disattiva il watchdog
           if (!narrativeText && data.narrative) {
             if (!soundPlayed) { playSound('message'); soundPlayed = true; }
             narrativeText = data.narrative;
@@ -247,11 +328,20 @@ async function sendToGM(message) {
       }
     }
   } catch (e) {
+    clearTimeout(tokenWatchdogId);
     if (!narrativeText) div.remove();
-    addSystemMsg(`⚠ ${e.message}`);
+
+    if (sseTimedOut || e.message === 'SSE_TIMEOUT') {
+      // Modulo 3 — SSE Auto-Recovery: riallinea l'HUD allo stato server e sblocca l'input
+      showSyncToast();
+      await syncHUD(true);
+    } else {
+      addSystemMsg(`⚠ ${e.message}`);
+    }
   } finally {
+    clearTimeout(tokenWatchdogId);
     busy = false;
-    if (!keepBusy) enableInput();
+    if (!keepBusy) unlockUI(); // Modulo 3: riabilita tutti i pulsanti
   }
 }
 

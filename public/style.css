@@ -2692,3 +2692,54 @@ body.ui-shake .combat-panel {
   animation: boss-phase-pulse 0.7s ease;
 }
 .loot-flash { animation: loot-flash 0.8s ease; }
+
+/* ── Session 23: UI Lock (anti rage-click) ───────────────────────────────────── */
+/* Tutti i pulsanti interattivi vengono disabilitati visivamente durante lo stream */
+body.ui-locked {
+  cursor: wait;
+}
+body.ui-locked button,
+body.ui-locked .skill-card,
+body.ui-locked .bag-item-btn,
+body.ui-locked .equip-enh-btn,
+body.ui-locked .equip-unequip-btn,
+body.ui-locked .repair-btn,
+body.ui-locked .craft-btn,
+body.ui-locked .top-btn {
+  pointer-events: none;
+  opacity: 0.45;
+  cursor: wait;
+}
+/* I pulsanti di chiusura modal rimangono cliccabili anche durante il lock */
+body.ui-locked .craft-modal-close,
+body.ui-locked .modal-close-btn {
+  pointer-events: auto;
+  opacity: 1;
+  cursor: pointer;
+}
+
+/* ── Session 23: Sync Recovery Toast ─────────────────────────────────────────── */
+/* Toast non bloccante per SSE timeout / network error recovery */
+#sync-error-toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: #1a1a2e;
+  border: 1px solid #f59e0b;
+  color: #fbbf24;
+  font-size: 12px;
+  font-family: monospace;
+  padding: 8px 16px;
+  border-radius: 6px;
+  z-index: 99998;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  max-width: 340px;
+  text-align: center;
+}
+#sync-error-toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}

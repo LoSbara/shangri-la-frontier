@@ -1389,7 +1389,7 @@ app.get('/api/state', (req, res) => {
 app.post('/api/chat', (req, res) => {
   const username = req.username;
   chatTails[username] = (chatTails[username] || Promise.resolve()).then(async () => {
-  const { message } = req.body;
+  const { message, turn_id } = req.body;
   if (!message?.trim()) return res.status(400).json({ error: 'Messaggio vuoto' });
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -1405,6 +1405,26 @@ app.post('/api/chat', (req, res) => {
     const inventory = readUD(username, 'inventory.json');
     const skills    = readUD(username, 'skills_library.json');
     const gameState = readUD(username, 'game_state.json');
+
+    // ── Idempotency check (turn_id) — scarta richieste duplicate/stale ──────────
+    const _expectedTurnId = (gameState.current_turn_id || 0) + 1;
+    if (typeof turn_id === 'number' && turn_id !== _expectedTurnId) {
+      console.warn(`[TurnId] Richiesta stale/duplicata — ricevuto:${turn_id}, atteso:${_expectedTurnId} — restituzione stato corrente senza elaborazione`);
+      sendEvent({
+        type: 'done', narrative: '', ui_events: [], new_skills: [], new_titles: [],
+        completed_quests: [], triggered_event: null, dungeon_room: null,
+        tactical_tension: gameState.tactical_tension || 0, party: gameState.party || [],
+        state: {
+          profile: readUDSafe(username, 'player_profile.json'),
+          inventory: readUD(username, 'inventory.json'),
+          skills: readUD(username, 'skills_library.json'),
+          gameState,
+        },
+      });
+      return res.end();
+    }
+    // Incrementa turn_id — persistito nella writeUD di fine turno
+    gameState.current_turn_id = _expectedTurnId;
 
     // Modalità GM umano: salta l'AI, salva il messaggio, segnala al frontend
     if (gameState.gm_mode) {
@@ -2218,6 +2238,7 @@ app.post('/api/reset', (req, res) => {
       combat_active: false, current_enemy: null, skill_loadout: [], session_log: [],
       current_dungeon_id: null, current_room_id: null, rooms_visited: [], context_memo: '',
       party: [], threat_table: {}, tactical_tension: 0,
+      current_turn_id: 0,
     });
     res.json({ ok: true });
   } catch (err) {
@@ -3257,6 +3278,23 @@ app.delete('/api/party/remove', (req, res) => {
     io.write('game_state.json', gameState);
     res.json({ ok: true, party: gameState.party });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/sync — snapshot HUD per boot/refresh/recovery SSE ────────────────
+// Aggrega profile + inventory + game_state senza toccare pending_* events.
+// Chiamato dal client al primo caricamento e come fallback dopo timeout SSE.
+app.get('/api/sync', (req, res) => {
+  try {
+    const io = userIO(req.username);
+    const profile   = io.readSafe('player_profile.json');
+    const inventory = io.read('inventory.json');
+    const gameState = io.read('game_state.json');
+    // pending_narrative_events e pending_combat_state NON vengono azzerati:
+    // rimarranno nel JSON finché il prossimo turno di chat non li consumerà.
+    res.json({ profile, inventory, gameState });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.listen(PORT, () => {
