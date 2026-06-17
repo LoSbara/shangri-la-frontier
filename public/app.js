@@ -26,6 +26,7 @@ const mapBtn          = document.getElementById('map-btn');
 const bestiaryBtn     = document.getElementById('bestiary-btn');
 const diaryBtn        = document.getElementById('diary-btn');
 const shopBtn         = document.getElementById('shop-btn');
+const craftBtn        = document.getElementById('craft-btn');
 const questsBtn       = document.getElementById('quests-btn');
 
 marked.setOptions({ breaks: true });
@@ -223,6 +224,8 @@ async function sendToGM(message) {
           currentState = data.state;
           updateUI(data.state);
           updatePlayerHUD(data.state.profile, data.state.inventory, data.state.gameState);
+          if (data.tactical_tension !== undefined) renderTacticalTension(data.tactical_tension, data.state.gameState?.combat_active);
+          if (data.party) renderParty(data.party);
           dispatchUIEvents(data.ui_events || []);
           if (data.ui_events?.includes('level_up')) showLevelUp(data.state.profile.level);
           if (data.ui_events?.includes('skill_unlocked') && data.new_skills?.length) {
@@ -267,11 +270,25 @@ function dispatchUIEvents(events) {
       const part = ev.slice('PART_BROKEN_'.length).toLowerCase();
       showPartBreakToast(part);
     } else if (ev === 'loot_obtained') {
-      // Piccola animazione sull'icona borsa se presente
       const bagEl = document.getElementById('bag-list');
       if (bagEl) { bagEl.classList.add('loot-flash'); setTimeout(() => bagEl.classList.remove('loot-flash'), 800); }
     } else if (ev === 'puzzle_solved') {
       showPartBreakToast('puzzle risolto', '#3b82f6', '🧩');
+    } else if (ev === 'GOLDEN_GLOW') {
+      const overlay = document.createElement('div');
+      overlay.className = 'ui-golden-flash';
+      overlay.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:9999;';
+      document.body.appendChild(overlay);
+      setTimeout(() => overlay.remove(), 900);
+      showPartBreakToast('OVERDRIVE!', '#eab308', '⚡');
+    } else if (ev === 'ENEMY_STAGGERED') {
+      document.body.classList.add('ui-shake');
+      setTimeout(() => document.body.classList.remove('ui-shake'), 700);
+      showPartBreakToast('STAGGER!', '#a78bfa', '💫');
+    } else if (ev.startsWith('NPC_HIT_')) {
+      const npcId = ev.slice('NPC_HIT_'.length);
+      const card  = document.querySelector(`[data-npc-id="${npcId}"]`);
+      if (card) { card.classList.add('party-hit-flash'); setTimeout(() => card.classList.remove('party-hit-flash'), 600); }
     }
   });
 }
@@ -284,6 +301,106 @@ function showPartBreakToast(part, color = '#ef4444', icon = '💥') {
   document.body.appendChild(el);
   requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
   setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 400); }, 2500);
+}
+
+// ── Tactical Tension Bar ──────────────────────────────────────────────────────
+function renderTacticalTension(tension, inCombat) {
+  let wrapper = document.getElementById('tension-wrapper');
+  if (!inCombat) { if (wrapper) wrapper.style.display = 'none'; return; }
+  if (!wrapper) {
+    wrapper = document.createElement('div');
+    wrapper.id = 'tension-wrapper';
+    wrapper.innerHTML = `
+      <div class="tension-label">⚡ Tensione Tattica <span id="tension-val">0</span>/100</div>
+      <div class="tension-bar-track"><div id="tension-bar-fill" class="tension-bar-fill"></div></div>`;
+    const combatPanel = document.getElementById('combat-panel');
+    if (combatPanel) combatPanel.appendChild(wrapper);
+    else document.body.appendChild(wrapper);
+  }
+  wrapper.style.display = '';
+  const fill = document.getElementById('tension-bar-fill');
+  const val  = document.getElementById('tension-val');
+  const pct  = Math.max(0, Math.min(100, tension));
+  if (fill) { fill.style.width = pct + '%'; fill.classList.toggle('tension-high', pct >= 80); }
+  if (val)  val.textContent = pct;
+}
+
+// ── Party Panel ───────────────────────────────────────────────────────────────
+function renderParty(party) {
+  let panel = document.getElementById('party-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'party-panel';
+    panel.className = 'party-panel';
+    const sidebar = document.getElementById('sidebar') || document.body;
+    sidebar.appendChild(panel);
+  }
+  if (!party || party.length === 0) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  panel.innerHTML = '<div class="party-panel-title">👥 Alleati</div>' + party.map(npc => {
+    const hpPct = npc.max_hp > 0 ? Math.max(0, Math.min(100, (npc.hp / npc.max_hp) * 100)) : 0;
+    return `<div class="party-member-card" data-npc-id="${npc.npc_id}">
+      <div class="party-member-name">${npc.name}</div>
+      <div class="party-bar-track"><div class="party-bar-fill" style="width:${hpPct}%"></div></div>
+      <div class="party-hp-val">${npc.hp}/${npc.max_hp} HP</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Craft Modal ───────────────────────────────────────────────────────────────
+async function openCraftModal() {
+  let modal = document.getElementById('craft-modal');
+  if (modal) { modal.classList.remove('hidden'); return; }
+
+  modal = document.createElement('div');
+  modal.id = 'craft-modal';
+  modal.className = 'craft-modal-overlay';
+  modal.innerHTML = `
+    <div class="craft-modal">
+      <div class="craft-modal-header">
+        <span>⚒ Bottega di Goro</span>
+        <button class="craft-modal-close" onclick="document.getElementById('craft-modal').classList.add('hidden')">✕</button>
+      </div>
+      <div id="craft-recipe-list" class="craft-recipe-list"><em>Caricamento ricette…</em></div>
+    </div>`;
+  document.body.appendChild(modal);
+
+  try {
+    const data = await apiFetch('/api/recipes');
+    const listEl = document.getElementById('craft-recipe-list');
+    if (!data.recipes || data.recipes.length === 0) {
+      listEl.innerHTML = '<em>Nessuna ricetta disponibile.</em>';
+      return;
+    }
+    listEl.innerHTML = data.recipes.map(r => {
+      const reqHtml = Object.entries(r.required)
+        .map(([id, qty]) => `<span class="craft-ing">${qty}× ${id.replace(/_/g,' ')}</span>`)
+        .join(' ');
+      const costHtml = r.money_cost ? `<span class="craft-ing">💰 ${r.money_cost} R</span>` : '';
+      const btnClass = r.can_craft ? 'craft-btn' : 'craft-btn craft-btn-disabled';
+      const btnAttr  = r.can_craft ? `onclick="craftItem('${r.id}')"` : 'disabled';
+      return `<div class="craft-recipe-card ${r.can_craft ? '' : 'craft-unavailable'}">
+        <div class="craft-recipe-name">${r.name}</div>
+        <div class="craft-recipe-req">${reqHtml}${costHtml}</div>
+        <div class="craft-recipe-desc">${r.description || ''}</div>
+        <button class="${btnClass}" ${btnAttr}>Forgia</button>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    const listEl = document.getElementById('craft-recipe-list');
+    if (listEl) listEl.innerHTML = `<em>⚠ Errore: ${e.message}</em>`;
+  }
+}
+
+async function craftItem(recipeId) {
+  try {
+    const result = await apiFetch('/api/craft', { method: 'POST', body: JSON.stringify({ recipe_id: recipeId }) });
+    document.getElementById('craft-modal')?.classList.add('hidden');
+    addSystemMsg(`⚒ ${result.message || 'Oggetto forgiato!'}`);
+    if (result.state) { currentState = result.state; updateUI(result.state); }
+  } catch (e) {
+    addSystemMsg(`⚠ Craft fallito: ${e.message}`);
+  }
 }
 
 async function handleSend() {
@@ -360,8 +477,9 @@ function updateUI({ profile, inventory, skills, gameState: gs }) {
   locEl.textContent = cityLine + subLine;
   locEl.classList.toggle('in-combat', inCombat);
 
-  // Negozio: abilita solo in safe zone e se personaggio creato
-  shopBtn.disabled = !profile.name || gs.zone_type !== 'safe_zone';
+  // Negozio e Bottega: abilita solo in safe zone e se personaggio creato
+  shopBtn.disabled  = !profile.name || gs.zone_type !== 'safe_zone';
+  if (craftBtn) craftBtn.disabled = !profile.name || gs.zone_type !== 'safe_zone';
 
   const quests = gs.quests_active || [];
   document.getElementById('quest-section').style.display = quests.length ? '' : 'none';
@@ -1048,6 +1166,7 @@ function switchShopTab(tab) {
 
 shopBtn.addEventListener('click', openShopModal);
 document.getElementById('shop-refresh-btn').addEventListener('click', generateShop);
+if (craftBtn) craftBtn.addEventListener('click', openCraftModal);
 
 // ────────────────────────────────────────────────────────────────────────────
 // MODAL STAT ALLOCATION

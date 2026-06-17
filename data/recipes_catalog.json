@@ -1,0 +1,94 @@
+{
+  "_note": "Database ricette statiche. Ogni ricetta consuma ingredienti dalla borsa e produce un nuovo item.",
+  "recipes": [
+    {
+      "id": "spada_fusa_goblin",
+      "name": "Spada Fusa dei Goblin",
+      "description": "Tre zanne di goblin fuse insieme a una lama arrugginita dal fabbro.",
+      "required": { "zanna_goblin": 3, "lama_arrugginita": 1 },
+      "money_cost": 40,
+      "result": {
+        "item_id": "spada_fusa_goblin",
+        "name": "Spada Fusa dei Goblin",
+        "type": "weapon",
+        "slot": "weapon",
+        "stats": { "STR": 4, "DEX": 1 },
+        "rarity": "non_comune",
+        "price": 90
+      },
+      "npc_required": "goro_fabbro",
+      "lore": "Un'arma rozza ma efficace. L'odore di goblin non se ne va mai del tutto."
+    },
+    {
+      "id": "amuleto_lupo",
+      "name": "Amuleto del Lupo Selvaggio",
+      "description": "Zanna e pelo di lupo intrecciati da un cacciatore esperto.",
+      "required": { "zanna_lupo": 1, "pelo_lupo": 3 },
+      "money_cost": 25,
+      "result": {
+        "item_id": "amuleto_lupo",
+        "name": "Amuleto del Lupo Selvaggio",
+        "type": "accessory",
+        "slot": "accessory_1",
+        "stats": { "AGI": 3, "LUC": 1 },
+        "rarity": "non_comune",
+        "price": 75
+      },
+      "lore": "Chi lo porta sente l'istinto da predatore scorrere nel sangue."
+    },
+    {
+      "id": "elixir_resistenza",
+      "name": "Elisir di Resistenza",
+      "description": "Acido di melma verde neutralizzato con nucleo cristallizzato — un recupero d'emergenza.",
+      "required": { "acido_melma_verde": 1, "nucleo_melma": 2 },
+      "money_cost": 15,
+      "result": {
+        "item_id": "elixir_resistenza",
+        "name": "Elisir di Resistenza",
+        "type": "consumable",
+        "slot": null,
+        "stats": { "HP_restore": 45, "STM_restore": 20 },
+        "rarity": "comune",
+        "price": 40,
+        "appraised": true
+      },
+      "lore": "Sgradevole ma efficace. I cacciatori lo chiamano 'fango verde'."
+    },
+    {
+      "id": "cintura_orso",
+      "name": "Cintura dell'Orso delle Caverne",
+      "description": "Pelliccia e artiglio d'orso conciati in una cintura rinforzata.",
+      "required": { "pelliccia_orso": 2, "artiglio_orso": 1 },
+      "money_cost": 60,
+      "result": {
+        "item_id": "cintura_orso",
+        "name": "Cintura dell'Orso delle Caverne",
+        "type": "accessory",
+        "slot": "accessory_2",
+        "stats": { "VIT": 4, "STR": 1 },
+        "rarity": "non_comune",
+        "price": 110
+      },
+      "stat_variance": { "VIT": 1 },
+      "lore": "Senti il peso dell'orso quando la indossi. Una sensazione di solidità assoluta."
+    },
+    {
+      "id": "guanti_artiglio",
+      "name": "Guanti d'Artiglio",
+      "description": "Artigli di lupo montati su guanti di pelle rinforzata.",
+      "required": { "artiglio_lupo": 2, "pelo_lupo": 1 },
+      "money_cost": 50,
+      "result": {
+        "item_id": "guanti_artiglio",
+        "name": "Guanti d'Artiglio",
+        "type": "armor",
+        "slot": "hands",
+        "stats": { "STR": 2, "DEX": 2 },
+        "rarity": "non_comune",
+        "price": 85
+      },
+      "stat_variance": { "STR": 1 },
+      "lore": "Con questi guanti, ogni pugno è uno squarcio."
+    }
+  ]
+}

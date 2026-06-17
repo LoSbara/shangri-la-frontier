@@ -1,7 +1,7 @@
 # Shangri-La Frontier — Stato del Progetto
 
 > Documento di riferimento completo per discussioni sull'avanzamento del progetto.  
-> Ultimo aggiornamento: 2026-06-17 (sessione 19 — Drop Tables LUC-based, Dungeon Trap/Puzzle pre-computation, Part Break System con debuff anatomici)
+> Ultimo aggiornamento: 2026-06-17 (sessione 20 — Crafting/Appraisal (Bottega di Goro), Tactical Tension Bar + Overdrive/Stagger, Aggro & Multitarget Combat con party NPC)
 
 ---
 
@@ -65,6 +65,7 @@ Shanfro/
     ├── unique_items.json     # 10 oggetti leggendari/epici
     ├── unique_monsters.json  # 8 boss unici
     ├── monsters_catalog.json # Drop table e parti anatomiche (dati statici design, separati da bestiary.json)
+    ├── recipes_catalog.json  # Database ricette crafting statiche (5 ricette, stat_variance per appraisal)
     ├── world/               # Lore zone statiche (es. bosco_novizi.json)
     ├── save/                # World state per-player mutable ([player_id]_world_state.json)
     ├── backups/             # Snapshot automatici su level_up / unique event
@@ -504,6 +505,31 @@ Endpoint: `GET /slots`, `POST /slots/:id/save`, `POST /slots/:id/load`, `DELETE 
 ### 8.18 Modalità GM
 `POST /api/gm-mode` + `POST /api/gm-respond` — interfaccia diretta con il GM senza AI. Usato per debug narrativo o override manuali.
 
+### 8.19 Crafting & Appraisal (Bottega di Goro)
+- `data/recipes_catalog.json` — 5 ricette statiche con `required` (ingredienti), `money_cost`, `result`, `npc_required`, opzionale `stat_variance`
+- `GET /api/recipes` — lista ricette con flag `can_craft` (controlla borsa + denaro in tempo reale)
+- `POST /api/craft { recipe_id }` — consuma ingredienti atomicamente, produce item, inietta `pending_narrative_events` per narrazione GM turno successivo
+- Oggetti con `stat_variance` prodotti con `appraised: false` — stat nascosta finché non valutata
+- UI: modal ⚒ "Bottega di Goro" (bottone nella top bar, abilitato solo in safe zone)
+
+### 8.20 Tactical Tension Bar + Overdrive/Stagger
+- `gameState.tactical_tension` (0–100 int) — accumulato durante `processBattleTags`
+- Accumulo: critico giocatore → +15, part break → +40; ricevere danno → -10
+- A 100: se causa = part_break → `ENEMY_STAGGERED` (nemico salta attacco quel turno); altrimenti → `PLAYER_OVERDRIVE` (danno ×1.5, UI GOLDEN_GLOW)
+- Pattern `pending_combat_state` (mirror di `pending_narrative_events`): stato salvato fine turno, consumato inizio turno successivo prima della chiamata AI
+- `overdrive_multiplier`: flag transitorio in gameState, consumato al primo `COMBAT_HIT_ENEMY` del turno
+- `enemy_staggered_this_turn`: flag transitorio, impedisce pre-computo attacco nemico, eliminato dopo `processBattleTags`
+- UI: barra gradiente sotto il pannello combattimento, pulsante a 80+ (giallo→rosso pulsante), flash dorato OVERDRIVE, shake STAGGER
+
+### 8.21 Aggro & Multitarget Combat (Party NPC)
+- `gameState.party` — array NPC alleati con `{ npc_id, name, hp, max_hp, vit }`
+- `gameState.threat_table` — `{ player: N, [npc_id]: N }` aggiornato ogni turno
+- Threat generato da danno inflitto al nemico; PROVOKE tag moltiplica minaccia giocatore ×3
+- Pre-AI: calcola target con threat più alta → se NPC, applica danno server-side, inietta `[ENEMY_ATTACK_TARGET]` in `serverDirectives`, emette `NPC_HIT_[npc_id]`
+- Reset threat_table e tactical_tension a fine combattimento
+- `POST /api/party/add` e `DELETE /api/party/remove`
+- UI: party panel con card HP NPC (flash rosso su `NPC_HIT_*` event)
+
 ---
 
 ## 9. API Endpoints (tutti)
@@ -534,6 +560,10 @@ Endpoint: `GET /slots`, `POST /slots/:id/save`, `POST /slots/:id/load`, `DELETE 
 | GET | `/api/unique-monsters` | Catalogo boss unici |
 | POST | `/api/enhance` | Potenzia oggetto (+1 livello) |
 | POST | `/api/appraise-item` | Valuta oggetto non identificato |
+| GET | `/api/recipes` | Lista ricette crafting con flag can_craft |
+| POST | `/api/craft` | Crafta un oggetto (consuma ingredienti) |
+| POST | `/api/party/add` | Aggiunge NPC alleato al party |
+| DELETE | `/api/party/remove` | Rimuove NPC dal party |
 | POST | `/api/equip` | Equipaggia oggetto da borsa |
 | POST | `/api/unequip` | Rimuove oggetto equipaggiato |
 | POST | `/api/use-item` | Usa consumabile |

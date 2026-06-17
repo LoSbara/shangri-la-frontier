@@ -2410,4 +2410,218 @@ body.ui-shake { animation: ui-shake 0.7s ease-in-out; }
 }
 
 @keyframes loot-flash { 0%,100%{background:transparent} 50%{background:rgba(234,179,8,.15)} }
+
+/* ── Tactical Tension Bar ────────────────────────────────────────────────────── */
+#tension-wrapper {
+  margin-top: 10px;
+  padding: 6px 0 0;
+  border-top: 1px solid var(--panel-border);
+}
+.tension-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  letter-spacing: 0.5px;
+}
+.tension-bar-track {
+  height: 8px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.tension-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #a78bfa);
+  border-radius: 4px;
+  transition: width 0.4s ease, background 0.3s;
+}
+.tension-bar-fill.tension-high {
+  background: linear-gradient(90deg, #eab308, #ef4444);
+  animation: tension-pulse 0.8s ease-in-out infinite alternate;
+}
+@keyframes tension-pulse {
+  from { filter: brightness(1); }
+  to   { filter: brightness(1.5) drop-shadow(0 0 6px #ef4444); }
+}
+
+/* ── Golden Flash (Overdrive) ────────────────────────────────────────────────── */
+.ui-golden-flash {
+  animation: golden-flash-anim 0.9s ease-out forwards;
+}
+@keyframes golden-flash-anim {
+  0%   { background: rgba(234,179,8,0); }
+  20%  { background: rgba(234,179,8,0.35); }
+  100% { background: rgba(234,179,8,0); }
+}
+
+/* ── Shake (Stagger) ─────────────────────────────────────────────────────────── */
+.ui-shake {
+  animation: ui-shake-anim 0.7s ease;
+}
+@keyframes ui-shake-anim {
+  0%,100% { transform: translateX(0); }
+  15%     { transform: translateX(-8px); }
+  30%     { transform: translateX(8px); }
+  45%     { transform: translateX(-5px); }
+  60%     { transform: translateX(5px); }
+  75%     { transform: translateX(-2px); }
+  90%     { transform: translateX(2px); }
+}
+
+/* ── Party Panel ─────────────────────────────────────────────────────────────── */
+.party-panel {
+  margin-top: 12px;
+  padding: 8px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+}
+.party-panel-title {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.party-member-card {
+  padding: 6px 8px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  margin-bottom: 6px;
+  transition: background 0.3s;
+}
+.party-member-card:last-child { margin-bottom: 0; }
+.party-member-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-bright);
+  margin-bottom: 4px;
+}
+.party-bar-track {
+  height: 6px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 2px;
+}
+.party-bar-fill {
+  height: 100%;
+  background: var(--hp);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.party-hp-val {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.party-hit-flash {
+  animation: party-hit-anim 0.6s ease;
+}
+@keyframes party-hit-anim {
+  0%,100% { background: rgba(255,255,255,0.03); }
+  40%     { background: rgba(239,68,68,0.35); }
+}
+
+/* ── Craft Modal ─────────────────────────────────────────────────────────────── */
+.craft-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5000;
+}
+.craft-modal-overlay.hidden { display: none; }
+.craft-modal {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  width: min(480px, 92vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.7);
+}
+.craft-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--panel-border);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-bright);
+}
+.craft-modal-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.2s;
+}
+.craft-modal-close:hover { color: var(--text-bright); }
+.craft-recipe-list {
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.craft-recipe-card {
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  transition: border-color 0.2s;
+}
+.craft-recipe-card:hover { border-color: var(--accent); }
+.craft-unavailable { opacity: 0.5; }
+.craft-recipe-name {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-bright);
+  margin-bottom: 4px;
+}
+.craft-recipe-req {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.craft-ing {
+  font-size: 11px;
+  background: rgba(92,95,232,0.15);
+  border: 1px solid rgba(92,95,232,0.3);
+  border-radius: 3px;
+  padding: 1px 6px;
+  color: var(--text);
+}
+.craft-recipe-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  font-style: italic;
+}
+.craft-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.craft-btn:hover { background: #4a4dcc; }
+.craft-btn-disabled {
+  background: var(--panel-border);
+  color: var(--text-dim);
+  cursor: not-allowed;
+}
 .loot-flash { animation: loot-flash 0.8s ease; }

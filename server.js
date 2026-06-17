@@ -381,6 +381,10 @@ function locationToZoneFile(location) {
 // Applica i battle_tags come fonte di verità matematica sullo stato,
 // partendo dallo snapshot PRE-TURNO per immunizzarsi da allucinazioni numeriche dell'AI.
 function processBattleTags(tags, profile, inventory, skills, gameState, snap, uiEvents) {
+  let tensionDelta = 0;          // delta tensione tattica accumulato questo turno
+  let tensionBreachSource = null; // 'part_break' → STAGGER, null → OVERDRIVE
+  let threatGenerated = 0;        // danno inflitto al nemico → aggiorna threat_table
+
   for (const tag of tags) {
     try {
       // ── BAG_ADD / BAG_REMOVE ─────────────────────────────────────────────────
@@ -494,6 +498,20 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
         continue;
       }
 
+      // ── PROVOKE — moltiplica ×3 la threat del giocatore ─────────────────────
+      if (tag.startsWith('PROVOKE')) {
+        gameState.threat_table = gameState.threat_table || { player: 0 };
+        gameState.threat_table.player = Math.floor((gameState.threat_table.player || 0) * 3);
+        console.log(`[Aggro] PROVOKE — threat player: ${gameState.threat_table.player}`);
+        continue;
+      }
+
+      // ── player_critical — incrementa tensione tattica ─────────────────────
+      if (tag === 'player_critical') {
+        tensionDelta += 15;
+        continue;
+      }
+
       // ── COMBAT_HIT_PLAYER_[monster_id]_[attack_type] ─────────────────────────
       // Il server calcola il danno da Monster_STR e Player_VIT (fonte di verità)
       if (tag.startsWith('COMBAT_HIT_PLAYER_')) {
@@ -503,6 +521,7 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
         const defense    = Math.floor(playerVIT / 3);
         const damage     = Math.max(1, monsterSTR - defense);
         profile.stats.HP.current = Math.max(0, profile.stats.HP.current - damage);
+        tensionDelta -= 10; // ricevere danno riduce la tensione tattica
         console.log(`[COMBAT→Player] MonsterSTR:${monsterSTR} − DEF:${defense} = ${damage} danno (HP: ${profile.stats.HP.current}/${profile.stats.HP.max})`);
         if (!uiEvents.includes('SCREEN_SHAKE')) uiEvents.push('SCREEN_SHAKE');
         if (damage >= 10) uiEvents.push('RED_FLASH');
@@ -537,12 +556,18 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
         const playerSTR  = totalStat(profile, inventory, 'STR');
         const playerTEC  = totalStat(profile, inventory, 'TEC');
         const baseAtk    = skillDef ? (skillDef.damage_type === 'tec' ? playerTEC : playerSTR) : playerSTR;
-        const skillMult  = skillDef?.damage_multiplier ?? 1.0;
-        const resistenza = enemy.stats?.resistenza ?? 0;
-        const rawDmg     = Math.floor(baseAtk * skillMult);
-        const damage     = Math.max(1, rawDmg - Math.floor(rawDmg * resistenza / 100));
+        const skillMult     = skillDef?.damage_multiplier ?? 1.0;
+        const overdriveMult = gameState.overdrive_multiplier || 1.0;
+        const resistenza    = enemy.stats?.resistenza ?? 0;
+        const rawDmg        = Math.floor(baseAtk * skillMult * overdriveMult);
+        const damage        = Math.max(1, rawDmg - Math.floor(rawDmg * resistenza / 100));
+        if (gameState.overdrive_multiplier) {
+          delete gameState.overdrive_multiplier; // consumato al primo attacco
+          if (!uiEvents.includes('GOLDEN_GLOW')) uiEvents.push('GOLDEN_GLOW');
+        }
         enemy.hp.current = Math.max(0, enemy.hp.current - damage);
-        console.log(`[COMBAT→Enemy] ATK:${rawDmg} − Res:${resistenza}% = ${damage} danno (HP: ${enemy.hp.current}/${enemy.hp.max})${bodyPart ? ' → parte: ' + bodyPart : ''}`);
+        threatGenerated += damage;
+        console.log(`[COMBAT→Enemy] ATK:${rawDmg}(×${overdriveMult}) − Res:${resistenza}% = ${damage} danno (HP: ${enemy.hp.current}/${enemy.hp.max})${bodyPart ? ' → parte: ' + bodyPart : ''}`);
 
         // Part Break: 50% del danno alla parte bersagliata
         if (bodyPart && enemyParts[bodyPart] && !enemyParts[bodyPart].broken) {
@@ -564,6 +589,8 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
             console.log(`[PartBreak] ${bodyPart} di ${enemy.name} distrutto!${debuffDesc}`);
             gameState.pending_narrative_events = gameState.pending_narrative_events || [];
             gameState.pending_narrative_events.push(`[💥 PART BREAK] La parte "${bodyPart}" di ${enemy.name} è stata distrutta${debuffDesc}. DESCRIVI obbligatoriamente la mutilazione/frattura nel turno corrente.`);
+            tensionDelta += 40;          // rottura parte → grande accumulo tensione
+            tensionBreachSource = 'part_break'; // → STAGGER al raggiungimento soglia
           }
         }
         continue;
@@ -594,6 +621,25 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
         profile.experience = snap.exp + Math.abs(delta);
       }
     } catch { /* tag malformato — ignora difensivamente */ }
+  }
+
+  // ── Tensione tattica — aggiorna e controlla soglia 100 ───────────────────
+  if (gameState.combat_active && tensionDelta !== 0) {
+    const prev = gameState.tactical_tension || 0;
+    const next  = Math.max(0, Math.min(100, prev + tensionDelta));
+    gameState.tactical_tension = next;
+    if (next >= 100) {
+      const stateType = tensionBreachSource === 'part_break' ? 'stagger' : 'overdrive';
+      gameState.pending_combat_state = { type: stateType };
+      gameState.tactical_tension = 0;
+      console.log(`[Tension] THRESHOLD 100 → ${stateType.toUpperCase()} (source: ${tensionBreachSource || 'critical'})`);
+    }
+  }
+
+  // ── Threat table — aggiorna minaccia player dopo danno inflitto ──────────
+  if (threatGenerated > 0 && gameState.combat_active) {
+    gameState.threat_table = gameState.threat_table || { player: 0 };
+    gameState.threat_table.player = (gameState.threat_table.player || 0) + threatGenerated;
   }
 }
 
@@ -1199,6 +1245,29 @@ app.post('/api/chat', (req, res) => {
     // UI events pre-AI: trappole/puzzle dungeon calcolati prima della risposta
     const preUIEvents = [];
 
+    // ── Pending combat state: OVERDRIVE / STAGGER dal turno precedente ───────
+    const pendingCombatState = gameState.pending_combat_state || null;
+    delete gameState.pending_combat_state;
+    if (pendingCombatState && gameState.combat_active) {
+      if (pendingCombatState.type === 'overdrive') {
+        serverDirectives +=
+          `[⚡ STATE: PLAYER_OVERDRIVE] La tensione tattica ha raggiunto il picco! ` +
+          `Il giocatore entra in uno stato di concentrazione/furia suprema. ` +
+          `Il prossimo attacco ha danno ×1.5 (calcolato server-side). ` +
+          `DESCRIVI obbligatoriamente un'aura dorata/esplosione di potere e una mossa devastante.\n\n`;
+        preUIEvents.push('GOLDEN_GLOW');
+        gameState.overdrive_multiplier = 1.5; // letto da processBattleTags per COMBAT_HIT_ENEMY
+      } else if (pendingCombatState.type === 'stagger') {
+        serverDirectives +=
+          `[💫 STATE: ENEMY_STAGGERED] Il nemico è stordito dalla frattura anatomica subita! ` +
+          `NON può attaccare questo turno (danno nemico = 0). ` +
+          `DESCRIVI obbligatoriamente il mostro che vacilla/crolla mentre il giocatore ha una finestra di attacco totale. ` +
+          `Non usare tag COMBAT_HIT_PLAYER questo turno.\n\n`;
+        preUIEvents.push('ENEMY_STAGGERED');
+        gameState.enemy_staggered_this_turn = true;
+      }
+    }
+
     const triggeredEvent = checkUniqueEventTriggers(profile, inventory, gameState);
     if (triggeredEvent) {
       serverDirectives +=
@@ -1277,6 +1346,41 @@ app.post('/api/chat', (req, res) => {
       serverDirectives +=
         `Quando il giocatore si sposta, aggiorna state_updates.game_state con: { "current_room_id": "<id_stanza>" }. ` +
         `ID validi: ${connList}.\n\n`;
+    }
+
+    // ── Aggro & Party — pre-computation attacco nemico (prima della call AI) ──
+    const partyMembers = gameState.party || [];
+    if (gameState.combat_active && gameState.current_enemy && partyMembers.length > 0) {
+      if (!gameState.threat_table) {
+        gameState.threat_table = { player: 100 };
+        partyMembers.forEach(m => { gameState.threat_table[m.npc_id] = 0; });
+      }
+      if (gameState.enemy_staggered_this_turn) {
+        serverDirectives += `[💫 NEMICO STORDITO] Il nemico non può attaccare questo turno — è incapacitato.\n\n`;
+      } else {
+        const threatEntries = Object.entries(gameState.threat_table).sort((a, b) => b[1] - a[1]);
+        const topTargetId   = threatEntries[0]?.[0] || 'player';
+        if (topTargetId !== 'player') {
+          const npcIdx = partyMembers.findIndex(m => m.npc_id === topTargetId);
+          if (npcIdx >= 0) {
+            const npc        = partyMembers[npcIdx];
+            const monsterSTR = gameState.current_enemy.stats?.STR ?? 8;
+            const npcDEF     = Math.floor((npc.vit || 8) / 3);
+            const npcDmg     = Math.max(1, monsterSTR - npcDEF);
+            npc.hp = Math.max(0, npc.hp - npcDmg);
+            gameState.party[npcIdx] = npc;
+            preUIEvents.push(`NPC_HIT_${topTargetId}`);
+            serverDirectives +=
+              `[🛡 ENEMY_ATTACK_TARGET: ${npc.name}, DAMAGE: ${npcDmg}, NPC_HP: ${npc.hp}/${npc.max_hp}] ` +
+              `Il nemico ignora il giocatore e attacca l'alleato ${npc.name}! ` +
+              `NARRA obbligatoriamente l'attacco del mostro sull'alleato. ` +
+              `NON usare COMBAT_HIT_PLAYER questo turno.\n\n`;
+            console.log(`[Aggro] ${gameState.current_enemy.name} → ${npc.name} per ${npcDmg} (HP: ${npc.hp}/${npc.max_hp})`);
+          }
+        } else {
+          serverDirectives += `[⚔ ENEMY_ATTACK_TARGET: Giocatore] Il giocatore ha il massimo aggro — il mostro si concentra su di lui.\n`;
+        }
+      }
     }
 
     // Carica stato mondo per-player (save file mutable > fallback file statico)
@@ -1485,6 +1589,12 @@ app.post('/api/chat', (req, res) => {
       }
     }
 
+    // Init threat table quando inizia il combattimento con alleati in party
+    if (!prevCombatActive && gameState.combat_active && (gameState.party || []).length > 0 && !gameState.threat_table?.player) {
+      gameState.threat_table = { player: 100 };
+      (gameState.party || []).forEach(m => { gameState.threat_table[m.npc_id] = 0; });
+    }
+
     // bag_add — top-level (schema) con fallback state_updates per compat
     const bagAddItems = parsed.bag_add || parsed.state_updates?.bag_add;
     if (bagAddItems) {
@@ -1587,6 +1697,9 @@ app.post('/api/chat', (req, res) => {
         enemyHP: snapEnemyHP,
       }, uiEvents);
     }
+    // Pulizia flag transitori post-AI (stagger/overdrive consumati questo turno)
+    delete gameState.enemy_staggered_this_turn;
+    if (gameState.overdrive_multiplier) delete gameState.overdrive_multiplier;
 
     // World state persistence: segna il nemico come morto se HP → 0
     if (worldStatePath && gameState.current_enemy?.hp?.current <= 0 && gameState.current_enemy?.name) {
@@ -1662,6 +1775,13 @@ app.post('/api/chat', (req, res) => {
         } catch { /* non-critical */ }
       }
     }
+    // Reset tensione e threat table alla fine del combattimento
+    if (prevCombatActive && !gameState.combat_active) {
+      gameState.tactical_tension = 0;
+      gameState.threat_table     = {};
+      delete gameState.pending_combat_state;
+    }
+
     if (gameState.current_enemy?.revealed && !prevEnemyRevealed && prevEnemyName) {
       counters.enemies_analyzed = (counters.enemies_analyzed || 0) + 1;
     }
@@ -1780,6 +1900,8 @@ app.post('/api/chat', (req, res) => {
       completed_quests: completedQuests.map(q => ({ id: q.id, name: q.name, rewards: q.rewards })),
       triggered_event: triggeredEvent ? { id: triggeredEvent.id, name: triggeredEvent.name } : null,
       dungeon_room: dungCtx ? { id: dungCtx.room.id, name: dungCtx.room.name, type: dungCtx.room.type } : null,
+      tactical_tension: gameState.tactical_tension || 0,
+      party: gameState.party || [],
       state: {
         profile:   readData('player_profile.json'),
         inventory: readData('inventory.json'),
@@ -1844,6 +1966,7 @@ app.post('/api/reset', (req, res) => {
       quests_active: [], quests_completed: [], unique_scenario_flags: {},
       combat_active: false, current_enemy: null, skill_loadout: [], session_log: [],
       current_dungeon_id: null, current_room_id: null, rooms_visited: [], context_memo: '',
+      party: [], threat_table: {}, tactical_tension: 0,
     });
     res.json({ ok: true });
   } catch (err) {
@@ -2560,6 +2683,134 @@ app.delete('/api/slots/:id', (req, res) => {
       }
     }
     res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/recipes — lista ricette disponibili ───────────────────────────
+app.get('/api/recipes', (req, res) => {
+  try {
+    let catalog;
+    try { catalog = readData('recipes_catalog.json'); } catch { return res.json({ recipes: [] }); }
+    const profile   = readData('player_profile.json');
+    const inventory = readData('inventory.json');
+    const bag       = inventory.bag || [];
+
+    const enriched = (catalog.recipes || []).map(recipe => {
+      const required = recipe.required || {};
+      const canCraft = profile.money >= (recipe.money_cost || 0) &&
+        Object.entries(required).every(([itemId, qty]) => {
+          const owned = bag.filter(it => it.id === itemId).reduce((s, it) => s + (it.quantity || 1), 0);
+          return owned >= qty;
+        });
+      const ingredients = Object.entries(required).map(([k, v]) => ({ id: k, name: k.replace(/_/g, ' '), qty: v }));
+      return { ...recipe, can_craft: canCraft, ingredients };
+    });
+    res.json({ recipes: enriched });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /api/craft — forgia un oggetto da ricetta ────────────────────────
+app.post('/api/craft', (req, res) => {
+  const { recipe_id } = req.body;
+  if (!recipe_id) return res.status(400).json({ error: 'recipe_id mancante' });
+  try {
+    let catalog;
+    try { catalog = readData('recipes_catalog.json'); } catch { return res.status(500).json({ error: 'recipes_catalog.json mancante' }); }
+    const recipe = (catalog.recipes || []).find(r => r.id === recipe_id);
+    if (!recipe) return res.status(404).json({ error: `Ricetta "${recipe_id}" non trovata` });
+
+    const profile   = readData('player_profile.json');
+    const inventory = readData('inventory.json');
+    const bag       = inventory.bag || [];
+    const required  = recipe.required || {};
+    const moneyCost = recipe.money_cost || 0;
+
+    if (profile.money < moneyCost) return res.status(400).json({ error: `Servono ${moneyCost} R (hai ${profile.money} R)` });
+
+    // Verifica ingredienti
+    const missing = [];
+    for (const [itemId, qty] of Object.entries(required)) {
+      const owned = bag.filter(it => it.id === itemId).reduce((s, it) => s + (it.quantity || 1), 0);
+      if (owned < qty) missing.push(`${qty}× ${itemId.replace(/_/g, ' ')} (hai ${owned})`);
+    }
+    if (missing.length) return res.status(400).json({ error: `Ingredienti mancanti: ${missing.join(', ')}` });
+
+    // Consuma ingredienti in modo atomico
+    for (const [itemId, qty] of Object.entries(required)) {
+      let remaining = qty;
+      for (let i = bag.length - 1; i >= 0 && remaining > 0; i--) {
+        if (bag[i].id !== itemId) continue;
+        const avail = bag[i].quantity || 1;
+        if (avail <= remaining) { remaining -= avail; bag.splice(i, 1); }
+        else { bag[i].quantity = avail - remaining; remaining = 0; }
+      }
+    }
+    profile.money -= moneyCost;
+
+    // Crea oggetto risultato (con eventuale variance statistica)
+    const tmpl = recipe.result;
+    const newItem = {
+      id:         tmpl.item_id || recipe_id,
+      name:       tmpl.name    || recipe_id.replace(/_/g, ' '),
+      type:       tmpl.type    || 'weapon',
+      slot:       tmpl.slot    || null,
+      stat_bonus: { ...tmpl.stats },
+      rarity:     tmpl.rarity  || 'comune',
+      price:      tmpl.price   || 50,
+      quantity:   1,
+      appraised:  tmpl.appraised !== false,
+    };
+    if (recipe.stat_variance) {
+      for (const [stat, variance] of Object.entries(recipe.stat_variance)) {
+        const base = newItem.stat_bonus[stat] || 0;
+        const roll = Math.floor(Math.random() * (variance * 2 + 1)) - variance;
+        newItem.stat_bonus[stat] = Math.max(0, base + roll);
+      }
+      newItem.appraised = false; // stat rollate — nascoste fino a valutazione
+    }
+
+    inventory.bag = [...bag, newItem];
+
+    // Inietta evento narrativo al prossimo turno
+    const gameState = readData('game_state.json');
+    gameState.pending_narrative_events = gameState.pending_narrative_events || [];
+    const ingredientsDesc = Object.entries(required).map(([k, v]) => `${v}× ${k.replace(/_/g, ' ')}`).join(', ');
+    gameState.pending_narrative_events.push(
+      `[⚒ CRAFT_SUCCESS: ${newItem.name}] Il giocatore ha forgiato "${newItem.name}" usando ${ingredientsDesc}${moneyCost ? ` (-${moneyCost} R)` : ''}. Nel prossimo turno NARRA obbligatoriamente la forgiatura dell'oggetto (fucina, scintille, risultato finale).`
+    );
+
+    writeData('player_profile.json', profile);
+    writeData('inventory.json', inventory);
+    writeData('game_state.json', gameState);
+    console.log(`[Craft] ${recipe_id} → ${newItem.name} (appraised: ${newItem.appraised})`);
+    res.json({ ok: true, item: newItem, profile, inventory });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /api/party/add — aggiunge un NPC al party ───────────────────────
+app.post('/api/party/add', (req, res) => {
+  const { npc_id, name, hp, vit, role } = req.body;
+  if (!npc_id || !name) return res.status(400).json({ error: 'npc_id e name obbligatori' });
+  try {
+    const gameState = readData('game_state.json');
+    gameState.party = gameState.party || [];
+    if (gameState.party.find(m => m.npc_id === npc_id)) return res.status(409).json({ error: 'NPC già nel party' });
+    const member = { npc_id, name, hp: hp || 100, max_hp: hp || 100, vit: vit || 10, role: role || 'support' };
+    gameState.party.push(member);
+    writeData('game_state.json', gameState);
+    res.json({ ok: true, party: gameState.party });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── DELETE /api/party/remove — rimuove un NPC dal party ──────────────────
+app.delete('/api/party/remove', (req, res) => {
+  const { npc_id } = req.body;
+  if (!npc_id) return res.status(400).json({ error: 'npc_id obbligatorio' });
+  try {
+    const gameState = readData('game_state.json');
+    gameState.party = (gameState.party || []).filter(m => m.npc_id !== npc_id);
+    writeData('game_state.json', gameState);
+    res.json({ ok: true, party: gameState.party });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -14,7 +14,10 @@
       <button id="map-btn"      class="top-btn" title="Mappa del mondo">🗺</button>
       <button id="bestiary-btn" class="top-btn" title="Bestiario">📖</button>
       <button id="npc-btn"      class="top-btn" title="NPC incontrati">👤</button>
+      <button id="quests-btn"   class="top-btn" title="Quest">📜</button>
+      <button id="diary-btn"    class="top-btn" title="Diario di viaggio">📕</button>
       <button id="shop-btn"     class="top-btn" title="Negozio" disabled>🛒</button>
+      <button id="craft-btn"    class="top-btn" title="Bottega di Goro" disabled>⚒</button>
       <button id="slots-btn"    class="top-btn" title="Salvataggi">💾</button>
       <button id="export-btn"   class="top-btn" title="Esporta sessione come .md">⬇</button>
       <button id="gm-mode-btn"  class="top-btn" title="Attiva GM umano">🎭</button>
@@ -95,8 +98,13 @@
       </div>
 
       <div class="panel-section" id="quest-section" style="display:none">
-        <div class="section-title">QUEST ATTIVE</div>
-        <div id="quest-list" class="quest-list"></div>
+        <div class="section-title-row">
+          <span class="section-title">QUEST ATTIVA</span>
+          <button class="section-title-row-link" onclick="openQuestsModal()">Tutte ▶</button>
+        </div>
+        <div id="quest-pin-display" class="quest-pin-box">
+          <div class="quest-pin-none">Nessuna quest in evidenza</div>
+        </div>
       </div>
 
     </aside>
@@ -206,24 +214,37 @@
     </div>
   </div>
 
+  <!-- ── Modal: Quest Tracker ── -->
+  <div id="modal-quests" class="modal-overlay hidden">
+    <div class="modal-box modal-box-quest">
+      <div class="modal-header-row">
+        <div class="modal-title">QUEST</div>
+        <button class="modal-close" onclick="closeModal('modal-quests')">✕</button>
+      </div>
+      <div id="quests-modal-content" class="quest-modal-list">
+        <div style="font-size:11px;color:var(--text-dim);text-align:center;padding:20px">Caricamento…</div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Modal: Mappa del Mondo ── -->
   <div id="modal-map" class="modal-overlay hidden">
     <div class="modal-box modal-box-map">
       <div class="modal-header-row">
-        <div class="modal-title">MAPPA DEL MONDO</div>
+        <div id="map-modal-title" class="modal-title">MAPPA DEL MONDO</div>
         <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn-tiny" onclick="openMapConfigurator()">✎ Modifica</button>
+          <button id="map-edit-btn" class="btn-tiny" onclick="openMapConfigurator()">✎ Modifica</button>
           <button class="modal-close" onclick="closeModal('modal-map')">✕</button>
         </div>
       </div>
-      <div class="map-legend">
+      <div id="map-legend-bar" class="map-legend">
         <span class="legend-dot safe"></span>Città
         <span class="legend-dot combat"></span>Zona combat
         <span class="legend-dot dungeon"></span>Dungeon
         <span class="legend-dot boss"></span>Boss
       </div>
       <div id="map-svg-container" class="map-svg-container"></div>
-      <div class="modal-sub" style="text-align:center;margin-top:8px">Clicca su una zona per spostarti</div>
+      <div id="map-modal-sub" class="modal-sub" style="text-align:center;margin-top:8px">Clicca su una zona per spostarti</div>
     </div>
   </div>
 
@@ -307,6 +328,13 @@
     </div>
   </div>
 
+  <!-- Quest completed toast -->
+  <div id="quest-completed-toast" class="quest-completed-toast hidden">
+    <div class="quest-toast-label">QUEST COMPLETATA</div>
+    <div id="quest-toast-name" class="quest-toast-name">—</div>
+    <div id="quest-toast-reward" class="quest-toast-reward"></div>
+  </div>
+
   <!-- Title unlocked toast -->
   <div id="title-toast" class="title-toast hidden">
     <div class="title-toast-label">TITOLO OTTENUTO</div>
@@ -349,6 +377,26 @@
       <div class="modal-actions">
         <button class="btn-secondary" onclick="closeModal('modal-advanced-class')">Scegli più tardi</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: Diario di Viaggio ── -->
+  <div id="modal-diary" class="modal-overlay hidden">
+    <div class="modal-box modal-box-diary">
+      <div class="modal-header-row">
+        <div>
+          <div class="modal-title">DIARIO DI VIAGGIO</div>
+          <div class="modal-sub" id="diary-subtitle">— eventi registrati</div>
+        </div>
+        <button class="modal-close" onclick="closeModal('modal-diary')">✕</button>
+      </div>
+      <div class="diary-filter-bar">
+        <input type="text" id="diary-search" class="diary-filter-input" placeholder="Cerca nel diario…" oninput="filterDiary()">
+        <select id="diary-zone-select" class="diary-zone-select" onchange="filterDiary()">
+          <option value="">Tutte le zone</option>
+        </select>
+      </div>
+      <div id="diary-entries-list" class="diary-entries-list"></div>
     </div>
   </div>
 
