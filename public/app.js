@@ -33,6 +33,7 @@ const diaryBtn        = document.getElementById('diary-btn');
 const shopBtn         = document.getElementById('shop-btn');
 const craftBtn        = document.getElementById('craft-btn');
 const questsBtn       = document.getElementById('quests-btn');
+const evolveBtn       = document.getElementById('evolve-btn');
 
 marked.setOptions({ breaks: true });
 
@@ -637,6 +638,8 @@ function updateUI({ profile, inventory, skills, gameState: gs }) {
   // Negozio e Bottega: abilita solo in safe zone e se personaggio creato
   shopBtn.disabled  = !profile.name || gs.zone_type !== 'safe_zone';
   if (craftBtn) craftBtn.disabled = !profile.name || gs.zone_type !== 'safe_zone';
+  // Bottone evoluzione: visibile solo se il personaggio esiste
+  if (evolveBtn) evolveBtn.classList.toggle('hidden', !profile.name);
 
   const quests = gs.quests_active || [];
   document.getElementById('quest-section').style.display = quests.length ? '' : 'none';
@@ -2174,6 +2177,96 @@ function showQuestCompleted(quest) {
 }
 
 questsBtn.addEventListener('click', openQuestsModal);
+
+// ────────────────────────────────────────────────────────────────────────────
+// EVOLUZIONE CLASSE — Modulo Session 26
+// ────────────────────────────────────────────────────────────────────────────
+
+let _evolveData  = null;
+let _evolveTier  = 2;
+
+async function openEvolveModal() {
+  document.getElementById('modal-evolve').classList.remove('hidden');
+  document.getElementById('evolve-list').innerHTML = '<div style="color:var(--text-dim);font-size:11px;padding:16px">Caricamento catalogo…</div>';
+  try {
+    _evolveData = await apiFetch('/class/catalog');
+    document.getElementById('evolve-modal-sub').textContent =
+      `— ${_evolveData.player.job || '?'}` +
+      (_evolveData.player.subclass ? ` → ${_evolveData.player.subclass}` : '') +
+      (_evolveData.player.advanced_class ? ` → ${_evolveData.player.advanced_class}` : '');
+    renderEvolveList(_evolveTier);
+  } catch (e) {
+    document.getElementById('evolve-list').innerHTML = `<div style="color:#f87171;font-size:11px;padding:16px">Errore: ${e.message}</div>`;
+  }
+}
+
+function setEvolveTab(tier) {
+  _evolveTier = tier;
+  document.querySelectorAll('.evolve-tab').forEach((t, i) => t.classList.toggle('active', (i === 0 ? 2 : 3) === tier));
+  if (_evolveData) renderEvolveList(tier);
+}
+
+function renderEvolveList(tier) {
+  const list    = document.getElementById('evolve-list');
+  const entries = (_evolveData?.entries || []).filter(e => e.tier === tier);
+  if (!entries.length) { list.innerHTML = '<div style="color:var(--text-dim);font-size:11px;padding:16px">Nessuna classe di questo tier nel catalogo.</div>'; return; }
+
+  const player = _evolveData.player;
+  const alreadyHas = tier === 2 ? player.subclass : player.advanced_class;
+
+  list.innerHTML = entries.map(e => {
+    const eligible   = e.eligible;
+    const isCurrent  = alreadyHas === e.id;
+    const statLines  = Object.entries(e.requirements.stats).map(([s, v]) => {
+      const have = e.current_stats[s] ?? '?';
+      const ok   = have >= v;
+      return `<span class="${ok ? 'req-ok' : 'req-fail'}">${s}: ${have}/${v}</span>`;
+    }).join(' ');
+    const flagLines  = e.requirements.required_flags.map(f => {
+      const flagLabel = f.replace(/_/g, ' ').replace(' defeated', ' sconfitto');
+      const ok = e.flags_met;
+      return `<span class="${ok ? 'req-ok' : 'req-fail'}">🏆 ${flagLabel}</span>`;
+    }).join(' ');
+    const modsText   = Object.entries(e.passive_modifiers).map(([s, v]) => `${s} ×${v}`).join(' | ');
+    const critText   = e.tension_crit_bonus > 0 ? `Critico +${e.tension_crit_bonus} tensione` : '';
+    const hiddenTag  = e.is_hidden ? '<span class="evolve-hidden-tag">◈ NASCOSTA</span>' : '';
+    const btnLabel   = isCurrent ? '✓ Attiva' : (eligible ? 'Evolvi' : 'Bloccata');
+    const btnDisabled = isCurrent || !eligible || !!alreadyHas;
+
+    return `<div class="evolve-card ${eligible ? 'evolve-eligible' : ''} ${isCurrent ? 'evolve-current' : ''} ${e.is_hidden ? 'evolve-hidden' : ''}">
+      <div class="evolve-card-header">
+        <span class="evolve-name">${e.name} ${hiddenTag}</span>
+        <span class="evolve-tier-badge">T${e.tier}</span>
+      </div>
+      ${modsText   ? `<div class="evolve-mods">${modsText}</div>` : ''}
+      ${critText   ? `<div class="evolve-crit-bonus">${critText}</div>` : ''}
+      ${statLines  ? `<div class="evolve-reqs">${statLines}</div>` : ''}
+      ${flagLines  ? `<div class="evolve-reqs">${flagLines}</div>` : ''}
+      <button class="evolve-action-btn" ${btnDisabled ? 'disabled' : ''} onclick="classEvolve('${e.id}')">${btnLabel}</button>
+    </div>`;
+  }).join('');
+}
+
+async function classEvolve(classId) {
+  try {
+    const data = await apiFetch('/class/evolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_class: classId }),
+    });
+    addSystemMsg(`✨ Evoluzione completata: ${data.class_name} (T${data.tier})!`);
+    if (data.new_skills?.length) {
+      data.new_skills.forEach((sk, i) => setTimeout(() => showSkillUnlocked(sk.name), i * 800));
+    }
+    currentState = { ...(currentState || {}), profile: data.profile };
+    updateUI(currentState);
+    // Ricarica il catalogo con i dati aggiornati
+    _evolveData = null;
+    await openEvolveModal();
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+}
+
+evolveBtn?.addEventListener('click', openEvolveModal);
 
 // ────────────────────────────────────────────────────────────────────────────
 // COMBAT TICKER — Modulo 3

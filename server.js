@@ -96,6 +96,23 @@ const ADV_CLASS_REQUIREMENTS = {
   'Ingegnere':  { TEC: 25, STR: 18 },
 };
 
+// ── Classes Catalog — loader con cache in-memory ──────────────────────────────
+// Caricato una volta e tenuto in RAM; si azzera solo al riavvio del server.
+let _classCatalog = null;
+function getClassCatalog() {
+  if (!_classCatalog) {
+    try { _classCatalog = readData('classes_catalog.json'); } catch { _classCatalog = {}; }
+  }
+  return _classCatalog;
+}
+// ID dei tier T2/T3 che il catalogo espone (per lookup rapido)
+const CRIT_SPECIALIST_CLASSES = new Set(); // popolato lazy al primo accesso
+
+function getCatalogEntry(classId) {
+  if (!classId) return null;
+  return getClassCatalog()[classId] || null;
+}
+
 const REP_FACTIONS = [
   ['hunters_guild', 'Gilda'],
   ['merchants',     'Mercanti'],
@@ -265,9 +282,16 @@ function deepMerge(target, source) {
 }
 
 function totalStat(profile, inventory, stat) {
-  const base = profile.stats[stat] ?? 0;
+  const base  = profile.stats[stat] ?? 0;
   const bonus = inventory.stat_bonuses_from_equipment?.[stat] ?? 0;
-  return base + bonus;
+  const raw   = base + bonus;
+  // Applica passive_modifiers dal catalogo classi (advanced_class > subclass > base job)
+  const activeId = profile.advanced_class || profile.subclass || null;
+  if (activeId) {
+    const mult = getCatalogEntry(activeId)?.passive_modifiers?.[stat];
+    if (mult && mult !== 1) return Math.floor(raw * mult);
+  }
+  return raw;
 }
 
 // Raccoglie i vincoli (restrictions) da tutti gli oggetti equipaggiati.
@@ -612,7 +636,10 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
 
       // ── player_critical — incrementa tensione tattica ─────────────────────
       if (tag === 'player_critical') {
-        tensionDelta += 15;
+        const _critActiveId  = profile.advanced_class || profile.subclass || null;
+        const _critBonus     = _critActiveId ? (getCatalogEntry(_critActiveId)?.tension_crit_bonus ?? 0) : 0;
+        tensionDelta += 15 + _critBonus;
+        if (_critBonus > 0) console.log(`[ClassMod] Crit tension bonus +${_critBonus} da "${_critActiveId}" → totale critico: ${15 + _critBonus}`);
         continue;
       }
 
@@ -1071,7 +1098,15 @@ NON chiedere dove mettere i punti stat — il giocatore li assegna da solo trami
           : '(nessun mostro vivo in questa zona)') + '\n\n'
       : '';
 
-    semiStaticBlock = `${worldFlagsBlock}${worldBlock}## PERSONAGGIO: ${profile.name} — ${classChain} — Lv.${profile.level}
+    // ── Livello 2: stile narrativo da catalogo classi ─────────────────────────
+    const _catalogActiveId = profile.advanced_class || profile.subclass || null;
+    const _catalogEntry    = getCatalogEntry(_catalogActiveId);
+    const _proseStyle      = _catalogEntry?.prose_style || null;
+    const proseStyleBlock  = _proseStyle
+      ? `## STILE NARRATIVO CLASSE: ${_catalogEntry?.name || _catalogActiveId}\n${_proseStyle}\n\n`
+      : '';
+
+    semiStaticBlock = `${worldFlagsBlock}${worldBlock}${proseStyleBlock}## PERSONAGGIO: ${profile.name} — ${classChain} — Lv.${profile.level}
 STR: ${totalStat(profile, inventory, 'STR')} | DEX: ${totalStat(profile, inventory, 'DEX')} | AGI: ${totalStat(profile, inventory, 'AGI')}
 TEC: ${totalStat(profile, inventory, 'TEC')} | VIT: ${totalStat(profile, inventory, 'VIT')} | LUC: ${totalStat(profile, inventory, 'LUC')}
 Punti stat disponibili: ${profile.stat_points_available || 0}
@@ -2416,6 +2451,134 @@ app.post('/api/quests/claim', (req, res) => {
     io.write('game_state.json', gameState);
     console.log(`[Bounty] Claim: ${quest_id} → ${rewards.gold || 0}R + ${(rewards.items || []).length} item/s`);
     res.json({ ok: true, rewards, profile, inventory });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /api/class/catalog — restituisce l'albero classi con check eligibilità ──
+app.get('/api/class/catalog', (req, res) => {
+  try {
+    const io        = userIO(req.username);
+    const profile   = io.readSafe('player_profile.json');
+    const inventory = io.read('inventory.json');
+    const catalog   = getClassCatalog();
+
+    const entries = Object.entries(catalog)
+      .filter(([, e]) => !e.is_base)
+      .map(([id, entry]) => {
+        const reqStats  = entry.requirements?.stats         || {};
+        const reqFlags  = entry.requirements?.required_flags || [];
+        const statsOk   = Object.entries(reqStats).every(([s, v]) => totalStat(profile, inventory, s) >= v);
+        const flagsOk   = reqFlags.every(f => profile.flags?.[f]);
+        const currentStats = Object.fromEntries(
+          Object.keys(reqStats).map(s => [s, totalStat(profile, inventory, s)])
+        );
+        const isT3  = !!ADV_CLASS_NAMES[id];
+        return {
+          id,
+          name:              entry.name,
+          tier:              isT3 ? 3 : 2,
+          is_hidden:         entry.is_hidden || false,
+          requirements:      { stats: reqStats, required_flags: reqFlags },
+          eligible:          statsOk && flagsOk,
+          stats_met:         statsOk,
+          flags_met:         flagsOk,
+          current_stats:     currentStats,
+          passive_modifiers: entry.passive_modifiers || {},
+          tension_crit_bonus: entry.tension_crit_bonus || 0,
+        };
+      });
+
+    res.json({
+      entries,
+      player: {
+        job:            profile.job           || null,
+        subclass:       profile.subclass      || null,
+        advanced_class: profile.advanced_class || null,
+      },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /api/class/evolve — evoluzione catalogo-driven: verifica stat + flags ─
+// Gestisce sia T2 (subclass) che T3 (advanced_class) leggendo i requisiti dal catalogo.
+app.post('/api/class/evolve', (req, res) => {
+  const { target_class } = req.body;
+  if (!target_class) return res.status(400).json({ error: 'target_class mancante' });
+
+  try {
+    const io        = userIO(req.username);
+    const profile   = io.readSafe('player_profile.json');
+    const inventory = io.read('inventory.json');
+    const gameState = io.read('game_state.json');
+    const catalog   = getClassCatalog();
+    const entry     = catalog[target_class];
+
+    if (!entry || entry.is_base) return res.status(404).json({ error: `Classe "${target_class}" non trovata nel catalogo o è una classe base` });
+
+    // Verifica stat
+    const reqStats     = entry.requirements?.stats         || {};
+    const statsFailed  = Object.entries(reqStats).filter(([s, v]) => totalStat(profile, inventory, s) < v);
+    if (statsFailed.length) {
+      const needed = statsFailed.map(([s, v]) => `${s}: ${v} (hai: ${totalStat(profile, inventory, s)})`).join(', ');
+      return res.status(400).json({ error: `Requisiti stat non soddisfatti: ${needed}` });
+    }
+
+    // Verifica World Flags
+    const reqFlags    = entry.requirements?.required_flags || [];
+    const flagsFailed = reqFlags.filter(f => !profile.flags?.[f]);
+    if (flagsFailed.length) {
+      return res.status(400).json({ error: `Imprese richieste non completate: ${flagsFailed.join(', ')}` });
+    }
+
+    // Determina tier e aggiorna profilo
+    const isT3 = !!ADV_CLASS_NAMES[target_class];
+    const isT2 = !!SUBCLASS_NAMES[target_class];
+    if (isT3) {
+      if (!profile.subclass)       return res.status(400).json({ error: 'Devi prima ottenere una specializzazione T2' });
+      if (profile.advanced_class)  return res.status(400).json({ error: 'Classe avanzata già scelta' });
+      profile.advanced_class = target_class;
+    } else if (isT2) {
+      if (profile.subclass) return res.status(400).json({ error: 'Specializzazione T2 già scelta' });
+      profile.subclass = target_class;
+    } else {
+      return res.status(400).json({ error: 'Classe non presente in SUBCLASS_NAMES né ADV_CLASS_NAMES' });
+    }
+
+    // Inietta unlocked_skills nella libreria dell'utente
+    const skills        = io.read('skills_library.json');
+    const injectedSkills = [];
+    for (const skillDef of (entry.unlocked_skills || [])) {
+      const existing = skills.skills.find(s => s.id === skillDef.id);
+      if (existing) {
+        existing.learned = true;
+        injectedSkills.push(existing);
+      } else {
+        const newSkill = { ...skillDef, learned: true };
+        skills.skills.push(newSkill);
+        injectedSkills.push(newSkill);
+      }
+    }
+
+    // Evento narrativo → il GM narrerà l'epifania al prossimo turno
+    gameState.pending_narrative_events = gameState.pending_narrative_events || [];
+    gameState.pending_narrative_events.push(
+      `[✨ CLASS_EVOLUTION_SUCCESS: ${target_class}] Il giocatore ha appena ottenuto la classe avanzata "${entry.name}" (Tier ${isT3 ? 3 : 2}). ` +
+      `Questo è un momento EPICO: narra l'epifania, il cambiamento fisico/mentale, il potere che fluisce. ` +
+      (entry.prose_style ? `Stile della classe: ${entry.prose_style}` : '')
+    );
+
+    io.write('skills_library.json', skills);
+    io.write('player_profile.json', profile);
+    io.write('game_state.json', gameState);
+    console.log(`[ClassEvolve] ${req.username} → ${target_class} (${isT3 ? 'T3' : 'T2'}), ${injectedSkills.length} skill iniettate`);
+
+    res.json({
+      ok:          true,
+      class_name:  entry.name,
+      tier:        isT3 ? 3 : 2,
+      new_skills:  injectedSkills,
+      profile,
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

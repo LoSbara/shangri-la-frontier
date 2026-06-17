@@ -2998,3 +2998,87 @@ body.ui-locked .modal-close-btn {
 }
 .onboarding-btn:hover  { background: linear-gradient(135deg, #3730a3, #312e81); box-shadow: 0 0 16px rgba(79,70,229,0.3); }
 .onboarding-btn:disabled { opacity: 0.5; cursor: wait; }
+
+/* ── Evolve Modal (Session 26 — Class Evolution) ─────────────────────────── */
+.modal-box-evolve {
+  width: 540px;
+  max-width: 96vw;
+  max-height: 82vh;
+  overflow-y: auto;
+}
+.evolve-tier-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.evolve-tab {
+  flex: 1;
+  padding: 6px 0;
+  font-size: 11px;
+  font-family: monospace;
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  background: var(--panel-bg);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.evolve-tab.active  { border-color: #4f46e5; color: #a5b4fc; background: rgba(79,70,229,0.12); }
+.evolve-tab:hover:not(.active) { border-color: #374151; color: var(--text-main); }
+.evolve-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.evolve-card {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  opacity: 0.6;
+}
+.evolve-card.evolve-eligible  { opacity: 1; border-color: #2d3a6b; }
+.evolve-card.evolve-current   { border-color: #4f46e5; opacity: 1; }
+.evolve-card.evolve-hidden    { border-style: dashed; }
+.evolve-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.evolve-name        { font-size: 13px; font-weight: 700; color: var(--text-main); }
+.evolve-tier-badge  { font-size: 10px; font-family: monospace; color: var(--text-dim); }
+.evolve-hidden-tag  { font-size: 9px; font-family: monospace; color: #a78bfa; letter-spacing: 1px; margin-left: 6px; }
+.evolve-mods        { font-size: 10px; font-family: monospace; color: #86efac; }
+.evolve-crit-bonus  { font-size: 10px; font-family: monospace; color: #fbbf24; }
+.evolve-reqs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  font-family: monospace;
+}
+.req-ok   { color: #22c55e; }
+.req-fail { color: #ef4444; }
+.evolve-action-btn {
+  align-self: flex-end;
+  padding: 4px 14px;
+  font-size: 11px;
+  font-family: monospace;
+  border-radius: 4px;
+  border: 1px solid #374151;
+  background: #1f2937;
+  color: var(--text-main);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.evolve-action-btn:hover:not(:disabled) { background: #374151; border-color: #6b7280; }
+.evolve-action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.evolve-card.evolve-eligible .evolve-action-btn:not(:disabled) {
+  border-color: #4f46e5;
+  color: #a5b4fc;
+  background: rgba(79,70,229,0.12);
+}
+.evolve-card.evolve-current .evolve-action-btn { border-color: #4f46e5; color: #a5b4fc; }

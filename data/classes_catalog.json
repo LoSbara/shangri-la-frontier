@@ -1,0 +1,568 @@
+{
+  "_note": "Catalogo globale albero classi — passive_modifiers, required_flags, prose_style, tension_crit_bonus, unlocked_skills. Chiavi = ID classe (compatibili con SUBCLASS_NAMES / ADV_CLASS_NAMES in server.js).",
+
+  "Mercenario": {
+    "name": "Mercenario",
+    "is_base": true,
+    "tier": 1,
+    "base_modifiers": { "STR": 1.04, "VIT": 1.02 },
+    "subclasses": ["berserker", "guardian", "blade_master", "sovereign"],
+    "prose_style": "Guerriero diretto e implacabile. Ogni colpo è preciso, pesante, senza sprechi. Il tuo corpo è un'arma forgiata dalla sopravvivenza.",
+    "tension_crit_bonus": 0,
+    "unlocked_skills": []
+  },
+
+  "Scout": {
+    "name": "Scout",
+    "is_base": true,
+    "tier": 1,
+    "base_modifiers": { "DEX": 1.04, "AGI": 1.04 },
+    "subclasses": ["acrobat", "shadow", "duelist", "sovereign"],
+    "prose_style": "Velocità e precisione sopra tutto. Ti muovi come un'ombra, colpisci prima che il nemico percepisca il pericolo.",
+    "tension_crit_bonus": 0,
+    "unlocked_skills": []
+  },
+
+  "Mago": {
+    "name": "Mago",
+    "is_base": true,
+    "tier": 1,
+    "base_modifiers": { "TEC": 1.04, "LUC": 1.03 },
+    "subclasses": ["supreme_analyst", "manipulator", "artificer", "sovereign"],
+    "prose_style": "La tua mente è la vera arma. Ogni situazione è un'equazione, ogni nemico un problema da risolvere.",
+    "tension_crit_bonus": 0,
+    "unlocked_skills": []
+  },
+
+  "Sacerdote": {
+    "name": "Sacerdote",
+    "is_base": true,
+    "tier": 1,
+    "base_modifiers": { "VIT": 1.04, "LUC": 1.03 },
+    "subclasses": ["guaritore", "esorcista", "oracolo", "sovereign"],
+    "prose_style": "Sei il fulcro del gruppo. La tua presenza irradia una luce silenziosa che sostiene gli alleati e respinge l'oscurità.",
+    "tension_crit_bonus": 0,
+    "unlocked_skills": []
+  },
+
+  "Ingegnere": {
+    "name": "Ingegnere",
+    "is_base": true,
+    "tier": 1,
+    "base_modifiers": { "TEC": 1.04, "STR": 1.03 },
+    "subclasses": ["meccanico", "alchimista", "inventore", "sovereign"],
+    "prose_style": "Trasformi il caos in sistemi. I tuoi costrutti e la tua preparazione anticipano ogni scenario possibile.",
+    "tension_crit_bonus": 0,
+    "unlocked_skills": []
+  },
+
+  "berserker": {
+    "name": "Berserker",
+    "tier": 2,
+    "passive_modifiers": { "STR": 1.15 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["war_god", "blood_reaper"],
+    "tension_crit_bonus": 5,
+    "prose_style": "Sei entrato in uno stato oltre la ragione. Ogni colpo è una scarica di furia pura — descrivi il tuo corpo che ignora il dolore, i movimenti frenetici e la voce primitiva che urla dentro di te.",
+    "unlocked_skills": [
+      {
+        "id": "urlo_berserker",
+        "name": "Urlo del Berserker",
+        "description": "Emetti un urlo bestiale che aumenta la tensione tattica e intimorisce il nemico.",
+        "damage_multiplier": 0,
+        "damage_type": "stm",
+        "cost": { "mp": 0, "stm": 20 },
+        "cooldown_turns": 4,
+        "requirements": { "subclass": "berserker" }
+      }
+    ]
+  },
+
+  "guardian": {
+    "name": "Guardiano",
+    "tier": 2,
+    "passive_modifiers": { "VIT": 1.18 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["living_fortress", "iron_champion"],
+    "tension_crit_bonus": 0,
+    "prose_style": "Sei una fortezza in carne. Descrivi come gli impatti ti fanno arretrare di un centimetro — non di più. La tua postura è un muro.",
+    "unlocked_skills": [
+      {
+        "id": "posizione_difensiva",
+        "name": "Posizione Difensiva",
+        "description": "Riduce i danni subiti nel turno successivo concentrando la VIT come scudo attivo.",
+        "damage_multiplier": 0,
+        "damage_type": "vit",
+        "cost": { "mp": 10, "stm": 15 },
+        "cooldown_turns": 3,
+        "requirements": { "subclass": "guardian" }
+      }
+    ]
+  },
+
+  "blade_master": {
+    "name": "Lama Assoluta",
+    "tier": 2,
+    "passive_modifiers": { "STR": 1.10, "DEX": 1.10 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["sword_saint", "dual_blade"],
+    "tension_crit_bonus": 8,
+    "prose_style": "Ogni colpo è un'opera d'arte. Descrivi la traiettoria della lama come pura geometria — archi perfetti, tagli che producono un suono cristallino nell'aria.",
+    "unlocked_skills": [
+      {
+        "id": "fendente_precisione",
+        "name": "Fendente di Precisione",
+        "description": "Un affondo calcolato che massimizza l'efficacia della lama e ignora una parte della resistenza nemica.",
+        "damage_multiplier": 1.6,
+        "damage_type": "str",
+        "cost": { "mp": 0, "stm": 25 },
+        "cooldown_turns": 3,
+        "requirements": { "subclass": "blade_master" }
+      }
+    ]
+  },
+
+  "acrobat": {
+    "name": "Acrobata",
+    "tier": 2,
+    "passive_modifiers": { "AGI": 1.18, "DEX": 1.08 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["sky_dancer", "tempest"],
+    "tension_crit_bonus": 5,
+    "prose_style": "Sei pura fluidità. Descrivi i tuoi movimenti come una danza continua — capriole, cambi di direzione impossibili, attacchi che arrivano da angoli inaspettati.",
+    "unlocked_skills": [
+      {
+        "id": "salto_verticale",
+        "name": "Salto Verticale",
+        "description": "Balza oltre il nemico e attacca dall'alto, ignorando la sua guardia frontale.",
+        "damage_multiplier": 1.4,
+        "damage_type": "agi",
+        "cost": { "mp": 0, "stm": 20 },
+        "cooldown_turns": 2,
+        "requirements": { "subclass": "acrobat" }
+      }
+    ]
+  },
+
+  "shadow": {
+    "name": "Ombra",
+    "tier": 2,
+    "passive_modifiers": { "AGI": 1.12, "LUC": 1.12 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["absolute_phantom", "illusory_blade"],
+    "tension_crit_bonus": 8,
+    "prose_style": "Sei un'ombra tra le ombre. Descrivi i tuoi attacchi come apparizioni improvvise — il nemico non ti vede arrivare, solo sente il freddo della lama. Le immagini residue del tuo movimento confondono la sua percezione.",
+    "unlocked_skills": [
+      {
+        "id": "passo_ombra",
+        "name": "Passo d'Ombra",
+        "description": "Ti dissolvi e riapparisci alle spalle del nemico, garantendo un colpo critico al successivo attacco.",
+        "damage_multiplier": 0,
+        "damage_type": "agi",
+        "cost": { "mp": 15, "stm": 10 },
+        "cooldown_turns": 5,
+        "requirements": { "subclass": "shadow" }
+      }
+    ]
+  },
+
+  "duelist": {
+    "name": "Duelista",
+    "tier": 2,
+    "passive_modifiers": { "DEX": 1.15, "STR": 1.08 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["master_fencer", "eternal_champion"],
+    "tension_crit_bonus": 6,
+    "prose_style": "Ogni combattimento è un duello cerimoniale. Descrivi le parate, le aperture, i contrattacchi come un dialogo silenzioso tra due lame — ogni mossa risponde alla precedente.",
+    "unlocked_skills": [
+      {
+        "id": "riposte_fulminea",
+        "name": "Riposte Fulminea",
+        "description": "Sfrutta un attacco nemico per sferrare un contrattacco immediato con bonus di danno.",
+        "damage_multiplier": 1.5,
+        "damage_type": "dex",
+        "cost": { "mp": 0, "stm": 20 },
+        "cooldown_turns": 2,
+        "requirements": { "subclass": "duelist" }
+      }
+    ]
+  },
+
+  "supreme_analyst": {
+    "name": "Analista Supremo",
+    "tier": 2,
+    "passive_modifiers": { "TEC": 1.18, "LUC": 1.08 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["override_master", "precision_tactician"],
+    "tension_crit_bonus": 0,
+    "prose_style": "Il tuo combat è freddo e chirurgico. Ogni azione è il prodotto di analisi istantanee — descrivi i calcoli rapidi, le vulnerabilità identificate, gli attacchi come soluzioni matematiche eleganti.",
+    "unlocked_skills": [
+      {
+        "id": "analisi_profonda",
+        "name": "Analisi Profonda",
+        "description": "Scansiona il nemico rivelando tutte le sue stat, debolezze e phase_triggers nascosti.",
+        "damage_multiplier": 0,
+        "damage_type": "tec",
+        "cost": { "mp": 20, "stm": 0 },
+        "cooldown_turns": 6,
+        "requirements": { "subclass": "supreme_analyst" }
+      }
+    ]
+  },
+
+  "manipulator": {
+    "name": "Manipolatore",
+    "tier": 2,
+    "passive_modifiers": { "TEC": 1.12, "LUC": 1.12 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["curse_weaver", "dominator"],
+    "tension_crit_bonus": 3,
+    "prose_style": "Il nemico cade vittima delle sue stesse reazioni. Descrivi come semini confusione — status effect, debuff, parole che alterano la psicologia del combattimento.",
+    "unlocked_skills": [
+      {
+        "id": "tocco_maledetto",
+        "name": "Tocco Maledetto",
+        "description": "Applica una maledizione che amplifica i danni ricevuti dal bersaglio nei prossimi turni.",
+        "damage_multiplier": 0,
+        "damage_type": "tec",
+        "cost": { "mp": 25, "stm": 5 },
+        "cooldown_turns": 5,
+        "requirements": { "subclass": "manipulator" }
+      }
+    ]
+  },
+
+  "artificer": {
+    "name": "Artefice",
+    "tier": 2,
+    "passive_modifiers": { "TEC": 1.10, "STR": 1.08 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["construct_master", "trap_specialist"],
+    "tension_crit_bonus": 0,
+    "prose_style": "Il campo di battaglia è il tuo laboratorio. Descrivi le preparazioni tattiche, i meccanismi che scattano al momento giusto, la soddisfazione del piano che si realizza.",
+    "unlocked_skills": [
+      {
+        "id": "dispositivo_esplosivo",
+        "name": "Dispositivo Esplosivo",
+        "description": "Piazza un ordigno ad innesco che esplode al turno successivo infliggendo danni ad area.",
+        "damage_multiplier": 1.8,
+        "damage_type": "tec",
+        "cost": { "mp": 15, "stm": 20 },
+        "cooldown_turns": 4,
+        "requirements": { "subclass": "artificer" }
+      }
+    ]
+  },
+
+  "sovereign": {
+    "name": "Sovereigno",
+    "tier": 2,
+    "passive_modifiers": { "STR": 1.06, "DEX": 1.06, "AGI": 1.06, "TEC": 1.06, "VIT": 1.06, "LUC": 1.06 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["world_ruler", "living_legend"],
+    "tension_crit_bonus": 3,
+    "prose_style": "Sei al di sopra dei limiti di classe. Ogni azione irradia autorità assoluta — descrivi un guerriero che supera le specializzazioni, padroneggiando ogni aspetto del combattimento.",
+    "unlocked_skills": [
+      {
+        "id": "volonta_sovrana",
+        "name": "Volontà Sovrana",
+        "description": "Manifestazione della volontà assoluta: ignora il prossimo effetto di stagger o status negativo.",
+        "damage_multiplier": 0,
+        "damage_type": "str",
+        "cost": { "mp": 20, "stm": 20 },
+        "cooldown_turns": 6,
+        "requirements": { "subclass": "sovereign" }
+      }
+    ]
+  },
+
+  "guaritore": {
+    "name": "Guaritore",
+    "tier": 2,
+    "passive_modifiers": { "VIT": 1.15, "LUC": 1.08 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["angelo_custode", "fonte_vita"],
+    "tension_crit_bonus": 0,
+    "prose_style": "La luce che emetti è tangibile. Ogni cura è descritta come energia luminosa che pervade le ferite — calore, riparazione, rinascita sotto i tuoi palmi.",
+    "unlocked_skills": [
+      {
+        "id": "cura_rigenerativa",
+        "name": "Cura Rigenerativa",
+        "description": "Applica REGEN_3_5 al bersaglio: 5 HP per turno per 3 turni.",
+        "damage_multiplier": 0,
+        "damage_type": "vit",
+        "cost": { "mp": 30, "stm": 0 },
+        "cooldown_turns": 4,
+        "requirements": { "subclass": "guaritore" }
+      }
+    ]
+  },
+
+  "esorcista": {
+    "name": "Esorcista",
+    "tier": 2,
+    "passive_modifiers": { "TEC": 1.10, "LUC": 1.12 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["cavaliere_luce", "giustiziere_sacro"],
+    "tension_crit_bonus": 5,
+    "prose_style": "La luce è la tua spada. Descrivi gli attacchi come raggi sacri che bruciano la corruzione, il nome del Giudizio pronunciato ad ogni colpo decisivo.",
+    "unlocked_skills": [
+      {
+        "id": "sigillo_sacro",
+        "name": "Sigillo Sacro",
+        "description": "Marca il nemico con un sigillo di luce: riduce la sua resistenza del 15% per 2 turni.",
+        "damage_multiplier": 0,
+        "damage_type": "tec",
+        "cost": { "mp": 25, "stm": 0 },
+        "cooldown_turns": 5,
+        "requirements": { "subclass": "esorcista" }
+      }
+    ]
+  },
+
+  "oracolo": {
+    "name": "Oracolo",
+    "tier": 2,
+    "passive_modifiers": { "LUC": 1.20, "TEC": 1.08 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["prescelto", "veggente_abissi"],
+    "tension_crit_bonus": 10,
+    "prose_style": "Il destino ti parla in sussurri. Descrivi visioni rapide che precedono le azioni — frammenti del futuro che guidano la tua mano, critici che sembrano già scritti nelle stelle.",
+    "unlocked_skills": [
+      {
+        "id": "sguardo_del_fato",
+        "name": "Sguardo del Fato",
+        "description": "Consulti il fato: il prossimo attacco garantisce un colpo critico.",
+        "damage_multiplier": 0,
+        "damage_type": "luc",
+        "cost": { "mp": 30, "stm": 0 },
+        "cooldown_turns": 6,
+        "requirements": { "subclass": "oracolo" }
+      }
+    ]
+  },
+
+  "meccanico": {
+    "name": "Meccanico",
+    "tier": 2,
+    "passive_modifiers": { "TEC": 1.12, "STR": 1.10 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["mastro_ingegnere", "macchinista_guerra"],
+    "tension_crit_bonus": 0,
+    "prose_style": "Le tue mani sanno esattamente dove toccare. Descrivi interventi precisi su strutture nemiche, punti di pressione meccanica, riparazioni istantanee durante il combattimento.",
+    "unlocked_skills": [
+      {
+        "id": "campo_magnetico",
+        "name": "Campo Magnetico",
+        "description": "Genera un'interferenza che destabilizza equipaggiamento metallico nemico riducendone l'attacco.",
+        "damage_multiplier": 0,
+        "damage_type": "tec",
+        "cost": { "mp": 20, "stm": 10 },
+        "cooldown_turns": 4,
+        "requirements": { "subclass": "meccanico" }
+      }
+    ]
+  },
+
+  "alchimista": {
+    "name": "Alchimista",
+    "tier": 2,
+    "passive_modifiers": { "LUC": 1.10, "TEC": 1.12 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["grande_alchimista", "trasmutatore"],
+    "tension_crit_bonus": 3,
+    "prose_style": "Ogni sostanza è una potenziale arma o cura. Descrivi la creazione rapida di composti, esalazioni acide, precipitati che cristallizzano in forme affilate.",
+    "unlocked_skills": [
+      {
+        "id": "bomba_acida",
+        "name": "Bomba Acida",
+        "description": "Lancia un composto acido che corrode la resistenza nemica per 2 turni.",
+        "damage_multiplier": 1.3,
+        "damage_type": "tec",
+        "cost": { "mp": 20, "stm": 10 },
+        "cooldown_turns": 3,
+        "requirements": { "subclass": "alchimista" }
+      }
+    ]
+  },
+
+  "inventore": {
+    "name": "Inventore",
+    "tier": 2,
+    "passive_modifiers": { "TEC": 1.15, "DEX": 1.08 },
+    "requirements": { "stats": {}, "required_flags": [] },
+    "advanced_classes": ["genio_creativo", "golem_master"],
+    "tension_crit_bonus": 0,
+    "prose_style": "Le tue invenzioni sconvolgono il campo di battaglia. Descrivi gadget che nessuno si aspetta, soluzioni creative che ribaltano lo svantaggio.",
+    "unlocked_skills": [
+      {
+        "id": "prototipo_offensivo",
+        "name": "Prototipo Offensivo",
+        "description": "Attiva un prototipo sperimentale che infligge danni con alta varianza (×1.0–×2.0).",
+        "damage_multiplier": 1.5,
+        "damage_type": "tec",
+        "cost": { "mp": 10, "stm": 20 },
+        "cooldown_turns": 3,
+        "requirements": { "subclass": "inventore" }
+      }
+    ]
+  },
+
+  "war_god": {
+    "name": "Dio della Guerra",
+    "tier": 3,
+    "passive_modifiers": { "STR": 1.30, "VIT": 1.15 },
+    "requirements": { "stats": { "STR": 28 }, "required_flags": [] },
+    "tension_crit_bonus": 8,
+    "prose_style": "Sei oltre la guerra — sei la guerra stessa. Ogni tuo attacco risuona come un tuono. Il terreno trema sotto i tuoi passi. Il nemico ti guarda e vede la sua fine.",
+    "unlocked_skills": [
+      {
+        "id": "stato_guerra_divina",
+        "name": "Stato di Guerra Divina",
+        "description": "Per 3 turni ogni attacco garantisce critical e raddoppia la tensione tattica generata.",
+        "damage_multiplier": 0,
+        "damage_type": "str",
+        "cost": { "mp": 30, "stm": 40 },
+        "cooldown_turns": 8,
+        "requirements": { "advanced_class": "war_god" }
+      }
+    ]
+  },
+
+  "blood_reaper": {
+    "name": "Mietitore di Sangue",
+    "tier": 3,
+    "is_hidden": true,
+    "passive_modifiers": { "STR": 1.25, "AGI": 1.12 },
+    "requirements": {
+      "stats": { "STR": 25, "AGI": 18 },
+      "required_flags": ["guardiano_antico_del_bosco_defeated"]
+    },
+    "tension_crit_bonus": 10,
+    "prose_style": "Ogni goccia di sangue nemico ti rende più forte. Descrivi il tuo corpo che assorbe l'energia vitale del nemico — vene che pulsano con una luce oscura, riflessi che accelerano ad ogni ferita inferta.",
+    "unlocked_skills": [
+      {
+        "id": "banchetto_di_sangue",
+        "name": "Banchetto di Sangue",
+        "description": "Ogni colpo critico ripristina 5 HP. Effetto passivo permanente finché attivo il loadout.",
+        "damage_multiplier": 0,
+        "damage_type": "str",
+        "cost": { "mp": 0, "stm": 0 },
+        "cooldown_turns": 0,
+        "requirements": { "advanced_class": "blood_reaper" },
+        "is_passive": true
+      }
+    ]
+  },
+
+  "living_fortress": {
+    "name": "Fortezza Vivente",
+    "tier": 3,
+    "passive_modifiers": { "VIT": 1.35, "STR": 1.10 },
+    "requirements": { "stats": { "VIT": 28, "STR": 20 }, "required_flags": [] },
+    "tension_crit_bonus": 0,
+    "prose_style": "Sei immovibile. Descrivi come i colpi avversari si infrangono su di te come onde contro una scogliera — l'impatto, la tua posizione invariata, lo stupore del nemico.",
+    "unlocked_skills": [
+      {
+        "id": "muro_assoluto",
+        "name": "Muro Assoluto",
+        "description": "Per 2 turni i danni ricevuti sono ridotti del 70%. Non puoi attaccare durante l'effetto.",
+        "damage_multiplier": 0,
+        "damage_type": "vit",
+        "cost": { "mp": 20, "stm": 30 },
+        "cooldown_turns": 7,
+        "requirements": { "advanced_class": "living_fortress" }
+      }
+    ]
+  },
+
+  "sword_saint": {
+    "name": "Santo della Spada",
+    "tier": 3,
+    "passive_modifiers": { "STR": 1.28, "DEX": 1.18 },
+    "requirements": { "stats": { "STR": 26, "DEX": 22 }, "required_flags": [] },
+    "tension_crit_bonus": 12,
+    "prose_style": "Hai raggiunto la perfezione con la lama. Un colpo solo, infallibile, definitivo. Descrivi traiettorie di luce, il silenzio tra gli spostamenti, il momento prima del colpo finale come un'eternità.",
+    "unlocked_skills": [
+      {
+        "id": "taglio_del_vuoto",
+        "name": "Taglio del Vuoto",
+        "description": "Un colpo che ignora completamente la resistenza nemica. Danno puro.",
+        "damage_multiplier": 2.0,
+        "damage_type": "str",
+        "cost": { "mp": 20, "stm": 35 },
+        "cooldown_turns": 7,
+        "requirements": { "advanced_class": "sword_saint" }
+      }
+    ]
+  },
+
+  "absolute_phantom": {
+    "name": "Fantasma Assoluto",
+    "tier": 3,
+    "is_hidden": true,
+    "passive_modifiers": { "AGI": 1.38, "LUC": 1.20 },
+    "requirements": {
+      "stats": { "AGI": 30, "LUC": 22 },
+      "required_flags": ["guardiano_antico_del_bosco_defeated"]
+    },
+    "tension_crit_bonus": 15,
+    "prose_style": "Non esisti per il nemico finché non scegli di esistere. Descrivi attacchi che arrivano da direzioni impossibili, la sensazione del vuoto dove eri un istante prima, i riflessi del nemico che reagiscono a fantasmi.",
+    "unlocked_skills": [
+      {
+        "id": "stealth_perfetto",
+        "name": "Stealth Perfetto",
+        "description": "Diventi invisibile per 2 turni. Il primo attacco dopo l'uscita dallo stealth è garantito critico con danno ×3.",
+        "damage_multiplier": 0,
+        "damage_type": "agi",
+        "cost": { "mp": 25, "stm": 15 },
+        "cooldown_turns": 8,
+        "requirements": { "advanced_class": "absolute_phantom" }
+      }
+    ]
+  },
+
+  "prescelto": {
+    "name": "Prescelto del Destino",
+    "tier": 3,
+    "is_hidden": false,
+    "passive_modifiers": { "LUC": 1.40, "TEC": 1.12 },
+    "requirements": { "stats": { "LUC": 28 }, "required_flags": [] },
+    "tension_crit_bonus": 15,
+    "prose_style": "Il destino si piega alla tua volontà. Descrivi coincidenze impossibili che ti avvantaggiano, critici che sembrano predestinati, la sensazione di recitare un ruolo già scritto in stelle ancora non nate.",
+    "unlocked_skills": [
+      {
+        "id": "tiro_del_destino",
+        "name": "Tiro del Destino",
+        "description": "Attacco passivo: ogni critico ha il 30% di chance di resettare il suo cooldown (una sola volta per turno).",
+        "damage_multiplier": 0,
+        "damage_type": "luc",
+        "cost": { "mp": 0, "stm": 0 },
+        "cooldown_turns": 0,
+        "requirements": { "advanced_class": "prescelto" },
+        "is_passive": true
+      }
+    ]
+  },
+
+  "precision_tactician": {
+    "name": "Tattico di Precisione",
+    "tier": 3,
+    "passive_modifiers": { "TEC": 1.32, "DEX": 1.15 },
+    "requirements": { "stats": { "TEC": 28, "DEX": 20 }, "required_flags": [] },
+    "tension_crit_bonus": 5,
+    "prose_style": "Non esiste caos nel tuo combat. Descrivi l'analisi dei vettori di attacco, i millisecondi di calcolo che precedono ogni mossa, l'esecuzione perfetta come la soluzione di un'equazione.",
+    "unlocked_skills": [
+      {
+        "id": "punto_di_pressione",
+        "name": "Punto di Pressione",
+        "description": "Identificato il punto critico del nemico: il prossimo attacco ignora il 50% della sua resistenza.",
+        "damage_multiplier": 0,
+        "damage_type": "tec",
+        "cost": { "mp": 15, "stm": 10 },
+        "cooldown_turns": 4,
+        "requirements": { "advanced_class": "precision_tactician" }
+      }
+    ]
+  }
+}
