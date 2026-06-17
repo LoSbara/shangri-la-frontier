@@ -1,6 +1,11 @@
 // ── Config ────────────────────────────────────────────────────────────────────
 const API = 'http://localhost:3000/api';
 
+// ── Auth ──────────────────────────────────────────────────────────────────────
+function getCurrentUserId() {
+  return localStorage.getItem('aether_user_id') || 'default';
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 let busy            = false;
 let waitingForGM    = false;
@@ -199,6 +204,7 @@ async function syncHUD(quiet = false) {
 
 // ── API ───────────────────────────────────────────────────────────────────────
 async function apiFetch(path, opts = {}) {
+  opts.headers = Object.assign({ 'X-User-Id': getCurrentUserId() }, opts.headers || {});
   const res = await fetch(API + path, opts);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
@@ -218,7 +224,7 @@ async function sendToGM(message) {
   // Crea subito la bolla GM per lo streaming progressivo
   const div = document.createElement('div');
   div.className = 'message msg-gm';
-  div.innerHTML = '<div class="msg-label">GM — SHANGRI-LA FRONTIER</div><div class="msg-stream-body"></div>';
+  div.innerHTML = '<div class="msg-label">GM — AETHER HORIZON</div><div class="msg-stream-body"></div>';
   chatMessages.appendChild(div);
   scrollBottom();
   const bodyDiv = div.querySelector('.msg-stream-body');
@@ -248,7 +254,7 @@ async function sendToGM(message) {
   try {
     const response = await fetch(API + '/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': getCurrentUserId() },
       body: JSON.stringify({ message, turn_id }),
     });
 
@@ -976,7 +982,7 @@ function addGMMsg(narrative, isHistory=false) {
   if (!isHistory) playSound('message');
   const div = document.createElement('div');
   div.className = `message msg-gm${isHistory?' history':''}`;
-  div.innerHTML = `<div class="msg-label">GM — SHANGRI-LA FRONTIER</div><div>${marked.parse(narrative)}</div>`;
+  div.innerHTML = `<div class="msg-label">GM — AETHER HORIZON</div><div>${marked.parse(narrative)}</div>`;
   chatMessages.appendChild(div); scrollBottom();
 }
 function addPlayerMsg(text, isHistory=false) {
@@ -994,7 +1000,7 @@ function addSystemMsg(text) {
 function addTyping() {
   const div = document.createElement('div');
   div.className = 'message msg-gm';
-  div.innerHTML = `<div class="msg-label">GM — SHANGRI-LA FRONTIER</div><div class="typing-dots"><span></span><span></span><span></span></div>`;
+  div.innerHTML = `<div class="msg-label">GM — AETHER HORIZON</div><div class="typing-dots"><span></span><span></span><span></span></div>`;
   chatMessages.appendChild(div); scrollBottom();
   return div;
 }
@@ -2469,5 +2475,61 @@ function filterDiary() {
   }).join('');
 }
 
+// ── Player Status Bar ─────────────────────────────────────────────────────────
+function updatePlayerStatusBar(username) {
+  const el = document.getElementById('active-username');
+  if (el) el.textContent = username || '—';
+}
+
+document.getElementById('logout-btn').addEventListener('click', () => {
+  localStorage.removeItem('aether_user_id');
+  location.reload();
+});
+
+// ── Onboarding ────────────────────────────────────────────────────────────────
+const VALID_ID_RE = /^[a-z0-9_-]{1,15}$/i;
+
+function showOnboarding() {
+  document.getElementById('onboarding-overlay').classList.remove('hidden');
+}
+function hideOnboarding() {
+  document.getElementById('onboarding-overlay').classList.add('hidden');
+}
+
+document.getElementById('onboarding-btn').addEventListener('click', async () => {
+  const raw    = document.getElementById('onboarding-input').value.trim();
+  const errEl  = document.getElementById('onboarding-error');
+  const btn    = document.getElementById('onboarding-btn');
+
+  if (!VALID_ID_RE.test(raw)) {
+    errEl.classList.remove('hidden');
+    return;
+  }
+  errEl.classList.add('hidden');
+
+  const username = raw.toLowerCase();
+  localStorage.setItem('aether_user_id', username);
+  btn.disabled   = true;
+  btn.textContent = '◈ Connessione…';
+
+  hideOnboarding();
+  updatePlayerStatusBar(username);
+  await init();
+});
+
+document.getElementById('onboarding-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('onboarding-btn').click();
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
-init();
+function checkAuthAndBoot() {
+  const stored = localStorage.getItem('aether_user_id');
+  if (!stored) {
+    showOnboarding();
+    return;
+  }
+  updatePlayerStatusBar(stored);
+  init();
+}
+
+checkAuthAndBoot();

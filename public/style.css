@@ -2869,3 +2869,132 @@ body.ui-locked .modal-close-btn {
   color: #fbbf24;
 }
 .bounty-claim-btn:hover { background: rgba(217,119,6,0.25); }
+
+/* ── User Status Bar (Session 25 — Onboarding) ───────────────────────────── */
+.user-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--text-dim);
+  padding: 0 4px;
+  border-left: 1px solid var(--panel-border);
+  margin-left: 8px;
+}
+.user-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 5px #22c55e;
+  flex-shrink: 0;
+}
+.user-status-label { color: #22c55e; font-weight: 700; }
+.user-status-name  { color: var(--text-main); font-weight: 600; }
+.user-logout-btn {
+  background: none;
+  border: 1px solid #374151;
+  border-radius: 3px;
+  color: var(--text-dim);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 1px 5px;
+  transition: border-color 0.15s, color 0.15s;
+}
+.user-logout-btn:hover { border-color: #ef4444; color: #ef4444; }
+
+/* ── Onboarding Overlay (Session 25) ─────────────────────────────────────── */
+.onboarding-overlay {
+  position: fixed;
+  inset: 0;
+  background: #08080f;
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.onboarding-overlay.hidden { display: none; }
+.onboarding-box {
+  width: 400px;
+  max-width: 92vw;
+  background: #0a0a18;
+  border: 1px solid #1c1c35;
+  border-radius: 10px;
+  padding: 36px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 0 60px rgba(99, 102, 241, 0.12);
+}
+.onboarding-logo {
+  font-size: 22px;
+  font-weight: 900;
+  font-family: monospace;
+  letter-spacing: 3px;
+  color: #a5b4fc;
+  text-align: center;
+}
+.onboarding-subtitle {
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--text-dim);
+  text-align: center;
+  letter-spacing: 2px;
+  margin-top: -8px;
+}
+.onboarding-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #1c1c35, transparent);
+}
+.onboarding-copy {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  text-align: center;
+  margin: 0;
+}
+.onboarding-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.onboarding-label {
+  font-size: 10px;
+  font-family: monospace;
+  letter-spacing: 2px;
+  color: #a5b4fc;
+}
+.onboarding-input {
+  background: #0f0f1c;
+  border: 1px solid #1c1c35;
+  border-radius: 5px;
+  color: var(--text-main);
+  font-size: 14px;
+  font-family: monospace;
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.onboarding-input:focus { border-color: #4f46e5; }
+.onboarding-error {
+  font-size: 10px;
+  font-family: monospace;
+  color: #f87171;
+}
+.onboarding-error.hidden { display: none; }
+.onboarding-btn {
+  padding: 12px;
+  background: linear-gradient(135deg, #312e81, #1e1b4b);
+  border: 1px solid #4f46e5;
+  border-radius: 6px;
+  color: #a5b4fc;
+  font-size: 13px;
+  font-family: monospace;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.onboarding-btn:hover  { background: linear-gradient(135deg, #3730a3, #312e81); box-shadow: 0 0 16px rgba(79,70,229,0.3); }
+.onboarding-btn:disabled { opacity: 0.5; cursor: wait; }

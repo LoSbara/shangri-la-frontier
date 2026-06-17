@@ -985,7 +985,7 @@ function buildSystemPrompt(profile, inventory, skills, gameState, serverDirectiv
   let stateBlock = isNew
     ? (gmTurns === 0
       ? `## CREAZIONE PERSONAGGIO — PASSO 1
-ISTRUZIONE: Sei al PRIMO turno. Presenta l'ambientazione di Shangri-La Frontier e la città di Crysta in modo evocativo (3-4 frasi). Termina OBBLIGATORIAMENTE con la domanda: "Come vuoi chiamare il tuo personaggio?" Non menzionare ancora le classi.`
+ISTRUZIONE: Sei al PRIMO turno. Presenta l'ambientazione di Aether Horizon e la città di Crysta in modo evocativo (3-4 frasi). Termina OBBLIGATORIAMENTE con la domanda: "Come vuoi chiamare il tuo personaggio?" Non menzionare ancora le classi.`
 
       : gmTurns === 1
       ? `## CREAZIONE PERSONAGGIO — PASSO 2
@@ -1113,8 +1113,8 @@ ${combatStatsLine}`;
     ? dynamicBlock
     : `## STATO PERSONAGGIO\n${semiStaticBlock}\n\n---\n## STATO CORRENTE\n${dynamicBlock}`;
 
-  return `Sei il Game Master di SHANGRI-LA FRONTIER, un VRMMO testuale hardcore. Rispondi SEMPRE in italiano.
-REGOLA ASSOLUTA: Il gioco si chiama "Shangri-La Frontier". La città di partenza si chiama "Crysta". NON inventare mai altri nomi di mondi, città o ambientazioni. Ogni esito è determinato dalle statistiche: non inventare numeri.
+  return `Sei il Game Master di AETHER HORIZON, un VRMMO testuale hardcore. Rispondi SEMPRE in italiano.
+REGOLA ASSOLUTA: Il gioco si chiama "Aether Horizon". La città di partenza si chiama "Crysta". NON inventare mai altri nomi di mondi, città o ambientazioni. Ogni esito è determinato dalle statistiche: non inventare numeri.
 
 ## LORE
 - Moneta: Ragne (R) | I giocatori sono chiamati "Hunters"
@@ -2759,7 +2759,7 @@ app.post('/api/shop/generate', async (req, res) => {
     const profile   = io.read('player_profile.json');
     const gameState = io.read('game_state.json');
 
-    const prompt = `Sei il gestore di un negozio in "${gameState.location}" di Shangri-La Frontier.
+    const prompt = `Sei il gestore di un negozio in "${gameState.location}" di Aether Horizon.
 Il cliente è ${profile.name || 'uno Hunter'} (${profile.job || '?'}, Lv.${profile.level}) con ${profile.money} R.
 Genera 7 oggetti in vendita bilanciati per il suo livello. Mix consigliato:
 - 1-2 armi (slot: weapon o offhand) con stat_bonus.STR o DEX
@@ -3042,7 +3042,7 @@ app.get('/api/export', (req, res) => {
     const log       = gameState.session_log || [];
 
     const lines = [
-      `# Shangri-La Frontier — Sessione`,
+      `# Aether Horizon — Sessione`,
       ``,
       `**Personaggio:** ${profile.name || '—'} · ${profile.job || '?'} · Lv.${profile.level}`,
       `**Posizione:** ${gameState.location || '—'}`,
@@ -3057,7 +3057,7 @@ app.get('/api/export', (req, res) => {
       else if (role === 'assistant') lines.push(`**GM:** ${content}`, ``);
     });
 
-    const filename = `shanfro-${(profile.name || 'session').toLowerCase().replace(/\s+/g, '-')}.md`;
+    const filename = `aether-${(profile.name || 'session').toLowerCase().replace(/\s+/g, '-')}.md`;
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(lines.join('\n'));
@@ -3431,5 +3431,5 @@ app.get('/api/sync', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`\n🎮  Shangri-La Frontier  →  http://localhost:${PORT}\n`);
+  console.log(`\n🎮  Aether Horizon  →  http://localhost:${PORT}\n`);
 });

@@ -3,15 +3,31 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Shangri-La Frontier</title>
+  <title>Aether Horizon</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
+  <!-- ── Onboarding Overlay (Session 25) ── -->
+  <div id="onboarding-overlay" class="onboarding-overlay hidden">
+    <div class="onboarding-box">
+      <div class="onboarding-logo">◈ AETHER HORIZON</div>
+      <div class="onboarding-subtitle">LINK-START SYSTEM v2.0 — BETA</div>
+      <div class="onboarding-divider"></div>
+      <p class="onboarding-copy">Inserisci un identificatore Hunter per inizializzare il tuo profilo nel sistema.<br>La sessione verrà istanziata automaticamente nella città di Crysta.</p>
+      <div class="onboarding-field">
+        <label class="onboarding-label" for="onboarding-input">HUNTER ID</label>
+        <input id="onboarding-input" class="onboarding-input" type="text" maxlength="15" placeholder="es. kazuma99" autocomplete="off" spellcheck="false">
+        <div id="onboarding-error" class="onboarding-error hidden">ID non valido. Usa solo lettere, numeri o trattini (max 15 caratteri).</div>
+      </div>
+      <button id="onboarding-btn" class="onboarding-btn">⚡ INIZIALIZZA CONNESSIONE</button>
+    </div>
+  </div>
+
   <div id="announce-ticker" class="announce-ticker hidden"></div>
 
   <header class="top-bar">
-    <div class="game-title">◈ SHANGRI-LA FRONTIER</div>
+    <div class="game-title">◈ AETHER HORIZON</div>
     <div class="top-actions">
       <button id="map-btn"      class="top-btn" title="Mappa del mondo">🗺</button>
       <button id="bestiary-btn" class="top-btn" title="Bestiario">📖</button>
@@ -34,6 +50,13 @@
       <span class="sep">|</span>
       <span id="player-money">— R</span>
       <button id="reset-btn" class="icon-btn" title="Nuova partita">↺</button>
+    </div>
+    <div class="user-status-bar">
+      <span class="user-status-dot"></span>
+      <span class="user-status-label">Online</span>
+      <span class="sep">|</span>
+      <span id="active-username" class="user-status-name">—</span>
+      <button id="logout-btn" class="user-logout-btn" title="Disconnetti">⏏</button>
     </div>
   </header>
 
