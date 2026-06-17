@@ -289,6 +289,20 @@ function dispatchUIEvents(events) {
       const npcId = ev.slice('NPC_HIT_'.length);
       const card  = document.querySelector(`[data-npc-id="${npcId}"]`);
       if (card) { card.classList.add('party-hit-flash'); setTimeout(() => card.classList.remove('party-hit-flash'), 600); }
+    } else if (ev === 'PLAYER_DEATH') {
+      const overlay = document.createElement('div');
+      overlay.id = 'death-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;background:#000;opacity:0;z-index:99999;pointer-events:none;transition:opacity 0.8s ease;display:flex;align-items:center;justify-content:center;';
+      overlay.innerHTML = '<div style="color:#ef4444;font-size:32px;font-weight:900;letter-spacing:4px;text-transform:uppercase;opacity:0;transition:opacity 0.4s 0.4s">GAME OVER</div>';
+      document.body.appendChild(overlay);
+      requestAnimationFrame(() => {
+        overlay.style.opacity = '1';
+        setTimeout(() => { overlay.querySelector('div').style.opacity = '1'; }, 400);
+        setTimeout(() => {
+          overlay.style.opacity = '0';
+          setTimeout(() => overlay.remove(), 900);
+        }, 3200);
+      });
     } else if (ev === 'WEAPON_BROKEN') {
       showPartBreakToast('ARMA SPEZZATA!', '#6b7280', '⚒');
       const weapSlot = document.querySelector('[data-slot="weapon"]');

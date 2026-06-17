@@ -14,8 +14,8 @@ const deepseek = new OpenAI({
   baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
 });
 
-// FIFO queue — serializza le richieste /api/chat per evitare race condition sui file JSON
-let chatTail = Promise.resolve();
+// FIFO queue per-utente — evita race condition e garantisce isolamento tra sessioni concorrenti
+const chatTails = {};
 
 const SUBCLASS_NAMES = {
   berserker: 'Berserker', guardian: 'Guardiano', blade_master: 'Lama Assoluta',
@@ -138,9 +138,78 @@ const SLOTS_DIR = path.join(__dirname, 'data', 'slots');
 if (!fs.existsSync(SLOTS_DIR)) fs.mkdirSync(SLOTS_DIR, { recursive: true });
 const SLOT_FILES = ['player_profile.json', 'inventory.json', 'game_state.json', 'skills_library.json', 'bestiary.json', 'npcs.json'];
 
+// ─── Multi-user: file isolati per utente ──────────────────────────────────────
+const USER_DATA_FILES = new Set([
+  'player_profile.json', 'inventory.json', 'game_state.json',
+  'skills_library.json', 'bestiary.json', 'npcs.json', 'travel_diary.json',
+]);
+
+function getUserDir(username) {
+  const dir = path.join(DATA_DIR, 'save', username);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    for (const file of USER_DATA_FILES) {
+      const src = path.join(DATA_DIR, file);
+      const dst = path.join(dir, file);
+      if (fs.existsSync(src) && !fs.existsSync(dst)) {
+        try { fs.copyFileSync(src, dst); } catch {}
+      }
+    }
+    console.log(`[UserDir] Creata directory per "${username}" (seed dai file globali)`);
+  }
+  return dir;
+}
+
+function readUD(username, filename) {
+  const dir = USER_DATA_FILES.has(filename) ? getUserDir(username) : DATA_DIR;
+  return JSON.parse(fs.readFileSync(path.join(dir, filename), 'utf-8'));
+}
+
+function readUDSafe(username, filename) {
+  const dir = USER_DATA_FILES.has(filename) ? getUserDir(username) : DATA_DIR;
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dir, filename), 'utf-8'));
+  } catch {
+    const bakPath = path.join(dir, filename + '.bak');
+    if (fs.existsSync(bakPath)) {
+      console.error(`⚠️  [${username}] ${filename} corrotto — ripristino da .bak`);
+      const bak = JSON.parse(fs.readFileSync(bakPath, 'utf-8'));
+      fs.writeFileSync(path.join(dir, filename), JSON.stringify(bak, null, 2));
+      return bak;
+    }
+    throw new Error(`${filename} corrotto per "${username}" e .bak assente.`);
+  }
+}
+
+function writeUD(username, filename, data) {
+  const dir = USER_DATA_FILES.has(filename) ? getUserDir(username) : DATA_DIR;
+  fs.writeFileSync(path.join(dir, filename), JSON.stringify(data, null, 2));
+}
+
+function bakUD(username, filename) {
+  const dir = USER_DATA_FILES.has(filename) ? getUserDir(username) : DATA_DIR;
+  try { fs.copyFileSync(path.join(dir, filename), path.join(dir, filename + '.bak')); } catch {}
+}
+
+function userIO(username) {
+  return {
+    read:     (f)    => readUD(username, f),
+    readSafe: (f)    => readUDSafe(username, f),
+    write:    (f, d) => writeUD(username, f, d),
+    bak:      (f)    => bakUD(username, f),
+  };
+}
+
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Middleware: attacca req.username dall'header X-User-Id (sanitizzato, default 'default')
+app.use((req, res, next) => {
+  const raw = (req.headers['x-user-id'] || 'default').toString();
+  req.username = raw.replace(/[^a-z0-9_-]/gi, '_').toLowerCase().slice(0, 32) || 'default';
+  next();
+});
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -366,9 +435,10 @@ function stripBagForAI(bag) {
   }));
 }
 
-function buildDiaryBlock(gameState) {
-  let diary;
-  try { diary = readData('travel_diary.json'); } catch { return ''; }
+function buildDiaryBlock(gameState, diary = null) {
+  if (!diary) {
+    try { diary = readData('travel_diary.json'); } catch { return ''; }
+  }
   const entries = diary.entries || [];
   if (!entries.length) return '';
   const loc = gameState.location;
@@ -546,6 +616,29 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
         const damage     = Math.max(1, monsterSTR - defense);
         profile.stats.HP.current = Math.max(0, profile.stats.HP.current - damage);
         tensionDelta -= 10; // ricevere danno riduce la tensione tattica
+        // ── Game Over / Respawn autorevole ─────────────────────────────────────
+        if (profile.stats.HP.current <= 0) {
+          const goldPenalty            = Math.floor((profile.money || 0) * 0.20);
+          profile.money                = Math.max(0, (profile.money || 0) - goldPenalty);
+          profile.stats.HP.current     = 1;
+          gameState.combat_active      = false;
+          gameState.current_enemy      = null;
+          gameState.threat_table       = {};
+          gameState.tactical_tension   = 0;
+          delete gameState.pending_combat_state;
+          gameState.location           = 'Crysta';
+          gameState.sub_location       = "Locanda della Città d'Inizio";
+          gameState.zone_type          = 'safe_zone';
+          gameState.pending_narrative_events = gameState.pending_narrative_events || [];
+          gameState.pending_narrative_events.push(
+            `[💀 PLAYER_DIED_RESPAWN_ACTIVE: LOCATION: Crysta, PENALTY: -${goldPenalty} R (-20% oro)] ` +
+            `Il giocatore è MORTO in combattimento! NARRA OBBLIGATORIAMENTE: (1) dissoluzione pixelata del corpo, ` +
+            `(2) schermata Game Over in-universe, (3) risveglio alla locanda di Crysta. ` +
+            `NON descrivere attacchi successivi del nemico — il combattimento è terminato.`
+          );
+          if (!uiEvents.includes('PLAYER_DEATH')) uiEvents.push('PLAYER_DEATH');
+          console.log(`[DEATH] Respawn attivato — penalità: -${goldPenalty}R, location: Crysta`);
+        }
         console.log(`[COMBAT→Player] MonsterSTR:${monsterSTR} − DEF:${defense} = ${damage} danno (HP: ${profile.stats.HP.current}/${profile.stats.HP.max})`);
         if (!uiEvents.includes('SCREEN_SHAKE')) uiEvents.push('SCREEN_SHAKE');
         if (damage >= 10) uiEvents.push('RED_FLASH');
@@ -818,7 +911,7 @@ function sanitizeGMResponse(raw) {
   return raw;
 }
 
-function buildSystemPrompt(profile, inventory, skills, gameState, serverDirectives = '', worldData = {}) {
+function buildSystemPrompt(profile, inventory, skills, gameState, serverDirectives = '', worldData = {}, npcsData = null) {
   const isNew = !profile.name;
   // Conta quante risposte del GM ci sono già nel log per capire in quale passo siamo
   const gmTurns = (gameState.session_log || []).filter(e => e.role === 'assistant').length;
@@ -857,8 +950,8 @@ function buildSystemPrompt(profile, inventory, skills, gameState, serverDirectiv
   const repLine = 'Reputazione: ' + REP_FACTIONS.map(function(f) { return f[1] + ':' + repLabel(_rep[f[0]] || 0); }).join(' | ');
   let npcBlock = '';
   try {
-    const npcsData = readData('npcs.json');
-    const relevant = (npcsData.npcs || []).filter(n => n.last_seen === gameState.location || n.location === gameState.location);
+    const _npcs = npcsData || (() => { try { return readData('npcs.json'); } catch { return { npcs: [] }; } })();
+    const relevant = (_npcs.npcs || []).filter(n => n.last_seen === gameState.location || n.location === gameState.location);
     if (relevant.length) {
       npcBlock = '\n\n## NPC IN QUESTA ZONA\n' + relevant.map(n => '- ' + n.name + ' [' + (n.faction || '—') + '] Rel: ' + repLabel(n.relationship || 0) + (n.notes ? ' — ' + n.notes : '')).join('\n');
     }
@@ -930,6 +1023,16 @@ NON chiedere dove mettere i punti stat — il giocatore li assegna da solo trami
       profile.advanced_class ? ADV_CLASS_NAMES[profile.advanced_class]    : null,
     ].filter(Boolean).join(' → ');
 
+    // World Flags — Livello 2 cache semi-statico (cambia solo ai kill boss)
+    const _flags = profile.flags || {};
+    const _flagLines = [];
+    if (_flags.guardiano_antico_del_bosco_defeated) {
+      _flagLines.push('Il Guardiano Antico del Bosco è stato abbattuto. Gli NPC lo celebrano come il Cacciatore del Bosco. Le nebbie sulla strada per la zona successiva si sono diradate.');
+    }
+    const worldFlagsBlock = _flagLines.length
+      ? `## PROGRESSIONE MONDO\n${_flagLines.map(l => '- ' + l).join('\n')}\n\n`
+      : '';
+
     // Blocco lore zona — nel Livello 2 (semi-statico) per massimizzare il cache hit
     // I mostri con is_dead:true (world state per-player) sono filtrati dalla lista
     const liveMonsters = (worldData.available_monsters || []).filter(m => !m.is_dead);
@@ -943,7 +1046,7 @@ NON chiedere dove mettere i punti stat — il giocatore li assegna da solo trami
           : '(nessun mostro vivo in questa zona)') + '\n\n'
       : '';
 
-    semiStaticBlock = `${worldBlock}## PERSONAGGIO: ${profile.name} — ${classChain} — Lv.${profile.level}
+    semiStaticBlock = `${worldFlagsBlock}${worldBlock}## PERSONAGGIO: ${profile.name} — ${classChain} — Lv.${profile.level}
 STR: ${totalStat(profile, inventory, 'STR')} | DEX: ${totalStat(profile, inventory, 'DEX')} | AGI: ${totalStat(profile, inventory, 'AGI')}
 TEC: ${totalStat(profile, inventory, 'TEC')} | VIT: ${totalStat(profile, inventory, 'VIT')} | LUC: ${totalStat(profile, inventory, 'LUC')}
 Punti stat disponibili: ${profile.stat_points_available || 0}
@@ -1271,11 +1374,12 @@ function checkTitles(profile, skills) {
 
 app.get('/api/state', (req, res) => {
   try {
+    const io = userIO(req.username);
     res.json({
-      profile: readData('player_profile.json'),
-      inventory: readData('inventory.json'),
-      skills: readData('skills_library.json'),
-      gameState: readData('game_state.json'),
+      profile: io.read('player_profile.json'),
+      inventory: io.read('inventory.json'),
+      skills: io.read('skills_library.json'),
+      gameState: io.read('game_state.json'),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1283,7 +1387,8 @@ app.get('/api/state', (req, res) => {
 });
 
 app.post('/api/chat', (req, res) => {
-  chatTail = chatTail.then(async () => {
+  const username = req.username;
+  chatTails[username] = (chatTails[username] || Promise.resolve()).then(async () => {
   const { message } = req.body;
   if (!message?.trim()) return res.status(400).json({ error: 'Messaggio vuoto' });
 
@@ -1296,15 +1401,15 @@ app.post('/api/chat', (req, res) => {
   const sendEvent = (data) => res.write('data: ' + JSON.stringify(data) + '\n\n');
 
   try {
-    const profile   = readDataSafe('player_profile.json');
-    const inventory = readData('inventory.json');
-    const skills    = readData('skills_library.json');
-    const gameState = readData('game_state.json');
+    const profile   = readUDSafe(username, 'player_profile.json');
+    const inventory = readUD(username, 'inventory.json');
+    const skills    = readUD(username, 'skills_library.json');
+    const gameState = readUD(username, 'game_state.json');
 
     // Modalità GM umano: salta l'AI, salva il messaggio, segnala al frontend
     if (gameState.gm_mode) {
       gameState.session_log = [...(gameState.session_log || []).slice(-(MAX_SESSION_HISTORY - 1)), { role: 'user', content: message }];
-      writeData('game_state.json', gameState);
+      writeUD(username, 'game_state.json', gameState);
       sendEvent({ type: 'gm_mode', state: { profile, inventory, skills, gameState } });
       return res.end();
     }
@@ -1533,7 +1638,11 @@ app.post('/api/chat', (req, res) => {
       try { worldData = readData(`world/${locationToZoneFile(gameState.location)}.json`); } catch { worldData = {}; }
     }
 
-    const systemPrompt = buildSystemPrompt(profile, inventory, skills, gameState, serverDirectives, worldData);
+    let npcsForPrompt = null;
+    try { npcsForPrompt = readUD(username, 'npcs.json'); } catch {}
+    let diaryForPrompt = null;
+    try { diaryForPrompt = readUD(username, 'travel_diary.json'); } catch {}
+    const systemPrompt = buildSystemPrompt(profile, inventory, skills, gameState, serverDirectives, worldData, npcsForPrompt);
 
     const messages = [
       { role: 'system', content: systemPrompt },
@@ -1658,7 +1767,7 @@ app.post('/api/chat', (req, res) => {
     if (parsed.context_memo) gameState.context_memo = parsed.context_memo;
     if (parsed.diary_entry?.summary) {
       try {
-        const diary = readData('travel_diary.json');
+        const diary = readUD(username, 'travel_diary.json');
         diary.entries = diary.entries || [];
         diary.entries.push({
           id: diary.entries.length + 1,
@@ -1667,7 +1776,7 @@ app.post('/api/chat', (req, res) => {
           summary: parsed.diary_entry.summary,
           npcs: parsed.diary_entry.npcs || [],
         });
-        writeData('travel_diary.json', diary);
+        writeUD(username, 'travel_diary.json', diary);
       } catch { /* non-critical */ }
     }
     if (parsed.state_updates?.player)     deepMerge(profile,    parsed.state_updates.player);
@@ -1778,7 +1887,7 @@ app.post('/api/chat', (req, res) => {
           });
         }
       }
-      writeData('npcs.json', npcsData);
+      writeUD(username, 'npcs.json', npcsData);
     }
 
     // Denaro mai negativo
@@ -1809,7 +1918,7 @@ app.post('/api/chat', (req, res) => {
         const entry = bestiary.entries.find(e => e.name === prevEnemyName);
         if (entry) entry.defeated = (entry.defeated || 0) + 1;
       }
-      writeData('bestiary.json', bestiary);
+      writeUD(username, 'bestiary.json', bestiary);
     } catch { /* non-critical */ }
 
     // ── Battle Tags Engine — applica delta matematici come fonte di verità ────
@@ -1899,6 +2008,21 @@ app.post('/api/chat', (req, res) => {
         } catch { /* non-critical */ }
       }
     }
+    // ── World Flags: segna boss come sconfitto al kill ───────────────────────
+    if (prevCombatActive && !gameState.combat_active && prevEnemyName) {
+      const _catEntry = (() => {
+        try { const cat = readData('monsters_catalog.json'); return (cat.monsters || []).find(m => m.name === prevEnemyName); } catch { return null; }
+      })();
+      if (_catEntry?.is_boss || _catEntry?.is_unique) {
+        const _flagKey = prevEnemyName.toLowerCase().replace(/[^a-z0-9]+/g, '_') + '_defeated';
+        profile.flags = profile.flags || {};
+        if (!profile.flags[_flagKey]) {
+          profile.flags[_flagKey] = true;
+          console.log(`[Flag] Boss flag impostata: ${_flagKey} = true`);
+        }
+      }
+    }
+
     // Reset tensione e threat table alla fine del combattimento
     if (prevCombatActive && !gameState.combat_active) {
       gameState.tactical_tension = 0;
@@ -1944,7 +2068,7 @@ app.post('/api/chat', (req, res) => {
         if (sk) { sk.learned = true; serverSkills.push(sk); }
       }
     }
-    if (newTitles.length || serverSkills.length) writeData('skills_library.json', skills);
+    if (newTitles.length || serverSkills.length) writeUD(username, 'skills_library.json', skills);
 
     newTitles.forEach(() => uiEvents.push('title_unlocked'));
     serverSkills.forEach(sk => {
@@ -1993,7 +2117,7 @@ app.post('/api/chat', (req, res) => {
           skills.skills.push({ ...sk, learned: true });
         }
       }
-      writeData('skills_library.json', skills);
+      writeUD(username, 'skills_library.json', skills);
     }
 
     // Scrittura atomica: solo se lo stream si è concluso senza errori
@@ -2004,16 +2128,16 @@ app.post('/api/chat', (req, res) => {
 
     autoBackup(profile, gameState, uiEvents);
 
-    // Snapshot .bak preventivo — protegge da crash durante la writeData
-    try { fs.copyFileSync(path.join(DATA_DIR, 'player_profile.json'), path.join(DATA_DIR, 'player_profile.json.bak')); } catch { /* non-critico al primo avvio */ }
-    writeData('player_profile.json', profile);
-    writeData('inventory.json', inventory);
+    // Snapshot .bak preventivo — protegge da crash durante la writeUD
+    bakUD(username, 'player_profile.json');
+    writeUD(username, 'player_profile.json', profile);
+    writeUD(username, 'inventory.json', inventory);
     gameState.session_log = [
       ...(gameState.session_log || []).slice(-(MAX_SESSION_HISTORY - 2)),
       { role: 'user', content: message },
       { role: 'assistant', content: narrative },
     ];
-    writeData('game_state.json', gameState);
+    writeUD(username, 'game_state.json', gameState);
 
     sendEvent({
       type: 'done',
@@ -2027,10 +2151,10 @@ app.post('/api/chat', (req, res) => {
       tactical_tension: gameState.tactical_tension || 0,
       party: gameState.party || [],
       state: {
-        profile:   readData('player_profile.json'),
-        inventory: readData('inventory.json'),
-        skills:    readData('skills_library.json'),
-        gameState: readData('game_state.json'),
+        profile:   readUD(username, 'player_profile.json'),
+        inventory: readUD(username, 'inventory.json'),
+        skills:    readUD(username, 'skills_library.json'),
+        gameState: readUD(username, 'game_state.json'),
       },
     });
     res.end();
@@ -2045,7 +2169,8 @@ app.post('/api/chat', (req, res) => {
 
 app.get('/api/diary', (req, res) => {
   try {
-    const diary = readData('travel_diary.json');
+    const io = userIO(req.username);
+    const diary = io.read('travel_diary.json');
     res.json(diary);
   } catch {
     res.json({ entries: [] });
@@ -2055,7 +2180,8 @@ app.get('/api/diary', (req, res) => {
 // Reset per nuova partita (mantiene i file ma azzera il contenuto)
 app.post('/api/reset', (req, res) => {
   try {
-    writeData('player_profile.json', {
+    const io = userIO(req.username);
+    io.write('player_profile.json', {
       name: '', job: '', level: 1, experience: 0, experience_to_next: 100,
       stats: {
         HP: { current: 100, max: 100 }, MP: { current: 50, max: 50 }, STM: { current: 100, max: 100 },
@@ -2072,20 +2198,21 @@ app.post('/api/reset', (req, res) => {
         max_money: 500, elite_kills: 0, unique_completed: 0,
         max_skills_in_combat: 0, near_death_survives: 0,
       },
+      flags: {},
     });
-    try { writeData('npcs.json', { npcs: [] }); } catch {}
+    try { io.write('npcs.json', { npcs: [] }); } catch {}
     // Reset learned state on all non-default skills
     try {
-      const skills = readData('skills_library.json');
+      const skills = io.read('skills_library.json');
       skills.skills.forEach(sk => { if (!sk.unlocked_by_default) delete sk.learned; });
-      writeData('skills_library.json', skills);
+      io.write('skills_library.json', skills);
     } catch { /* non-critical */ }
-    writeData('inventory.json', {
+    io.write('inventory.json', {
       equipped: { weapon: null, offhand: null, head: null, chest: null, legs: null, boots: null, hands: null, accessory_1: null, accessory_2: null },
       stat_bonuses_from_equipment: { STR: 0, DEX: 0, AGI: 0, TEC: 0, VIT: 0, LUC: 0, HP_bonus: 0, MP_bonus: 0, STM_bonus: 0 },
       bag: [],
     });
-    writeData('game_state.json', {
+    io.write('game_state.json', {
       location: 'Crysta', sub_location: '', zone_type: 'safe_zone',
       quests_active: [], quests_completed: [], unique_scenario_flags: {},
       combat_active: false, current_enemy: null, skill_loadout: [], session_log: [],
@@ -2108,12 +2235,13 @@ app.post('/api/quest/start', (req, res) => {
     const quest = (db.quests || []).find(q => q.id === quest_id);
     if (!quest) return res.status(404).json({ error: `Quest "${quest_id}" non trovata` });
 
-    const gameState = readData('game_state.json');
+    const io = userIO(req.username);
+    const gameState = io.read('game_state.json');
     if ((gameState.quests_active || []).includes(quest_id)) return res.status(409).json({ error: 'Quest già attiva' });
     if ((gameState.quests_completed || []).includes(quest_id)) return res.status(409).json({ error: 'Quest già completata' });
 
     gameState.quests_active = [...(gameState.quests_active || []), quest_id];
-    writeData('game_state.json', gameState);
+    io.write('game_state.json', gameState);
     res.json({ ok: true, quest: { id: quest.id, name: quest.name, description: quest.description, target_counter: quest.target_counter, target_value: quest.target_value } });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2123,9 +2251,10 @@ app.post('/api/quest/start', (req, res) => {
 // GET /api/quests — lista quest disponibili, attive e completate
 app.get('/api/quests', (req, res) => {
   try {
+    const io        = userIO(req.username);
     const db        = readData('quests_database.json');
-    const gameState = readData('game_state.json');
-    const profile   = readData('player_profile.json');
+    const gameState = io.read('game_state.json');
+    const profile   = io.read('player_profile.json');
     const counters  = profile.action_counters || {};
 
     const quests = (db.quests || []).map(q => {
@@ -2151,12 +2280,13 @@ app.post('/api/dungeon/enter', (req, res) => {
     const dungeon = (data.dungeons || []).find(d => d.id === dungeon_id);
     if (!dungeon) return res.status(404).json({ error: `Dungeon "${dungeon_id}" non trovato` });
 
-    const gameState = readData('game_state.json');
+    const io = userIO(req.username);
+    const gameState = io.read('game_state.json');
     gameState.zone_type         = 'dungeon';
     gameState.current_dungeon_id = dungeon_id;
     gameState.current_room_id    = dungeon.rooms[0]?.id || null;
     gameState.rooms_visited      = gameState.current_room_id ? [gameState.current_room_id] : [];
-    writeData('game_state.json', gameState);
+    io.write('game_state.json', gameState);
 
     const firstRoom = dungeon.rooms[0] || {};
     res.json({ ok: true, dungeon_name: dungeon.name, room: { id: firstRoom.id, name: firstRoom.name, type: firstRoom.type, connections: firstRoom.connections } });
@@ -2168,7 +2298,8 @@ app.post('/api/dungeon/enter', (req, res) => {
 // GET /api/dungeon/map — mappa del dungeon corrente (stanze visitate)
 app.get('/api/dungeon/map', (req, res) => {
   try {
-    const gameState = readData('game_state.json');
+    const io = userIO(req.username);
+    const gameState = io.read('game_state.json');
     if (gameState.zone_type !== 'dungeon' || !gameState.current_dungeon_id) {
       return res.json({ in_dungeon: false });
     }
@@ -2195,7 +2326,8 @@ app.post('/api/allocate', (req, res) => {
   if (!allocations || typeof allocations !== 'object') {
     return res.status(400).json({ error: 'allocations mancanti' });
   }
-  const profile = readData('player_profile.json');
+  const io = userIO(req.username);
+  const profile = io.read('player_profile.json');
   const total = Object.values(allocations).reduce((sum, v) => sum + Number(v), 0);
   if (total > (profile.stat_points_available || 0)) {
     return res.status(400).json({ error: 'Punti insufficienti' });
@@ -2208,7 +2340,7 @@ app.post('/api/allocate', (req, res) => {
   }
   profile.stat_points_available -= total;
 
-  const skills    = readData('skills_library.json');
+  const skills    = io.read('skills_library.json');
   const newSkills = checkSkillUnlocks(profile, skills);
   const newTitles = checkTitles(profile, skills);
 
@@ -2219,8 +2351,8 @@ app.post('/api/allocate', (req, res) => {
     }
   }
 
-  if (newSkills.length || newTitles.length) writeData('skills_library.json', skills);
-  writeData('player_profile.json', profile);
+  if (newSkills.length || newTitles.length) io.write('skills_library.json', skills);
+  io.write('player_profile.json', profile);
 
   const subclass_available    = profile.level >= 10 && !profile.subclass;
   const advanced_class_available = profile.level >= 20 && profile.subclass && !profile.advanced_class;
@@ -2233,12 +2365,13 @@ app.post('/api/subclass', (req, res) => {
   if (!subclass_id) return res.status(400).json({ error: 'subclass_id mancante' });
 
   try {
-    const profile = readData('player_profile.json');
+    const io = userIO(req.username);
+    const profile = io.read('player_profile.json');
     if (!profile.name) return res.status(400).json({ error: 'Personaggio non creato' });
     if (profile.level < 10) return res.status(400).json({ error: 'Livello 10 richiesto per la specializzazione' });
     if (profile.subclass) return res.status(400).json({ error: 'Specializzazione già scelta' });
 
-    const inventory = readData('inventory.json');
+    const inventory = io.read('inventory.json');
     const statReqs = SUBCLASS_REQUIREMENTS[profile.job] || {};
     const statsMet = Object.entries(statReqs).every(([s, v]) => totalStat(profile, inventory, s) >= v);
     if (!statsMet) {
@@ -2251,11 +2384,11 @@ app.post('/api/subclass', (req, res) => {
 
     profile.subclass = subclass_id;
 
-    const skills    = readData('skills_library.json');
+    const skills    = io.read('skills_library.json');
     const newSkills = checkSkillUnlocks(profile, skills);
     const newTitles = checkTitles(profile, skills);
-    if (newSkills.length || newTitles.length) writeData('skills_library.json', skills);
-    writeData('player_profile.json', profile);
+    if (newSkills.length || newTitles.length) io.write('skills_library.json', skills);
+    io.write('player_profile.json', profile);
 
     res.json({
       profile,
@@ -2263,10 +2396,10 @@ app.post('/api/subclass', (req, res) => {
       new_titles: newTitles,
       subclass_name: SUBCLASS_NAMES[subclass_id] || subclass_id,
       state: {
-        profile: readData('player_profile.json'),
-        inventory: readData('inventory.json'),
-        skills: readData('skills_library.json'),
-        gameState: readData('game_state.json'),
+        profile: io.read('player_profile.json'),
+        inventory: io.read('inventory.json'),
+        skills: io.read('skills_library.json'),
+        gameState: io.read('game_state.json'),
       },
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -2278,13 +2411,14 @@ app.post('/api/advanced-class', (req, res) => {
   if (!advanced_class_id) return res.status(400).json({ error: 'advanced_class_id mancante' });
 
   try {
-    const profile = readData('player_profile.json');
+    const io = userIO(req.username);
+    const profile = io.read('player_profile.json');
     if (!profile.name) return res.status(400).json({ error: 'Personaggio non creato' });
     if (profile.level < 20) return res.status(400).json({ error: 'Livello 20 richiesto per la classe avanzata' });
     if (!profile.subclass) return res.status(400).json({ error: 'Specializzazione non ancora scelta' });
     if (profile.advanced_class) return res.status(400).json({ error: 'Classe avanzata già scelta' });
 
-    const inventory = readData('inventory.json');
+    const inventory = io.read('inventory.json');
     const statReqs = ADV_CLASS_REQUIREMENTS[profile.job] || {};
     const statsMet = Object.entries(statReqs).every(([s, v]) => totalStat(profile, inventory, s) >= v);
     if (!statsMet) {
@@ -2297,11 +2431,11 @@ app.post('/api/advanced-class', (req, res) => {
 
     profile.advanced_class = advanced_class_id;
 
-    const skills    = readData('skills_library.json');
+    const skills    = io.read('skills_library.json');
     const newSkills = checkSkillUnlocks(profile, skills);
     const newTitles = checkTitles(profile, skills);
-    if (newSkills.length || newTitles.length) writeData('skills_library.json', skills);
-    writeData('player_profile.json', profile);
+    if (newSkills.length || newTitles.length) io.write('skills_library.json', skills);
+    io.write('player_profile.json', profile);
 
     res.json({
       profile,
@@ -2309,10 +2443,10 @@ app.post('/api/advanced-class', (req, res) => {
       new_titles: newTitles,
       advanced_class_name: ADV_CLASS_NAMES[advanced_class_id] || advanced_class_id,
       state: {
-        profile: readData('player_profile.json'),
-        inventory: readData('inventory.json'),
-        skills: readData('skills_library.json'),
-        gameState: readData('game_state.json'),
+        profile: io.read('player_profile.json'),
+        inventory: io.read('inventory.json'),
+        skills: io.read('skills_library.json'),
+        gameState: io.read('game_state.json'),
       },
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -2326,7 +2460,10 @@ app.get('/api/world-map', (req, res) => {
 
 // GET /api/bestiary
 app.get('/api/bestiary', (req, res) => {
-  try { res.json(readData('bestiary.json')); }
+  try {
+    const io = userIO(req.username);
+    res.json(io.read('bestiary.json'));
+  }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -2339,8 +2476,9 @@ app.get('/api/shop', (req, res) => {
 // GET /api/npcs
 app.get('/api/npcs', (req, res) => {
   try {
+    const io = userIO(req.username);
     let data;
-    try { data = readData('npcs.json'); } catch { data = { npcs: [] }; }
+    try { data = io.read('npcs.json'); } catch { data = { npcs: [] }; }
     res.json(data);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2376,8 +2514,9 @@ app.post('/api/enhance', (req, res) => {
     return res.status(400).json({ error: 'material_bag_index mancante' });
   }
   try {
-    const profile   = readData('player_profile.json');
-    const inventory = readData('inventory.json');
+    const io = userIO(req.username);
+    const profile   = io.read('player_profile.json');
+    const inventory = io.read('inventory.json');
     const bag       = inventory.bag || [];
 
     if (material_bag_index >= bag.length) return res.status(400).json({ error: 'Materiale non in borsa' });
@@ -2425,8 +2564,8 @@ app.post('/api/enhance', (req, res) => {
     }
     inventory.bag = bag;
 
-    writeData('player_profile.json', profile);
-    writeData('inventory.json', inventory);
+    io.write('player_profile.json', profile);
+    io.write('inventory.json', inventory);
     res.json({ profile, inventory, itemName: item.name, newLevel: item.enhancement_level, cost: moneyCost });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2436,8 +2575,9 @@ app.post('/api/appraise-item', (req, res) => {
   const { bag_index } = req.body;
   if (bag_index === undefined || bag_index < 0) return res.status(400).json({ error: 'Indice non valido' });
   try {
-    const profile   = readData('player_profile.json');
-    const inventory = readData('inventory.json');
+    const io = userIO(req.username);
+    const profile   = io.read('player_profile.json');
+    const inventory = io.read('inventory.json');
     const bag       = inventory.bag || [];
     if (bag_index >= bag.length) return res.status(400).json({ error: 'Oggetto non in borsa' });
 
@@ -2452,7 +2592,7 @@ app.post('/api/appraise-item', (req, res) => {
     if (roll < threshold) {
       item.appraised = true;
       inventory.bag[bag_index] = item;
-      writeData('inventory.json', inventory);
+      io.write('inventory.json', inventory);
       result = 'success';
       text = `TEC ${tec} — il tuo occhio non ti tradisce. L'oggetto è stato identificato.`;
     } else {
@@ -2460,15 +2600,16 @@ app.post('/api/appraise-item', (req, res) => {
       text = `TEC ${tec} — non riesci a comprenderne la natura. Servono più esperienza tecnica o un esperto.`;
     }
 
-    res.json({ result, text, item: result === 'success' ? item : null, inventory: readData('inventory.json') });
+    res.json({ result, text, item: result === 'success' ? item : null, inventory: io.read('inventory.json') });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // POST /api/shop/generate — genera listino negozio via Gemini
 app.post('/api/shop/generate', async (req, res) => {
   try {
-    const profile   = readData('player_profile.json');
-    const gameState = readData('game_state.json');
+    const io = userIO(req.username);
+    const profile   = io.read('player_profile.json');
+    const gameState = io.read('game_state.json');
 
     const prompt = `Sei il gestore di un negozio in "${gameState.location}" di Shangri-La Frontier.
 Il cliente è ${profile.name || 'uno Hunter'} (${profile.job || '?'}, Lv.${profile.level}) con ${profile.money} R.
@@ -2512,8 +2653,9 @@ Rispondi con json valido:
 app.post('/api/shop/buy', (req, res) => {
   const { item_id } = req.body;
   try {
-    const profile = readData('player_profile.json');
-    const inventory = readData('inventory.json');
+    const io = userIO(req.username);
+    const profile = io.read('player_profile.json');
+    const inventory = io.read('inventory.json');
     const shop = readData('shop.json');
 
     const item = shop.items.find(i => i.id === item_id);
@@ -2528,8 +2670,8 @@ app.post('/api/shop/buy', (req, res) => {
     inventory.bag.push({ id: item.id, name: item.name, description: item.description,
       type: item.type, slot: item.slot, stat_bonus: item.stat_bonus || {}, rarity: item.rarity, quantity: 1, appraised: true });
 
-    writeData('player_profile.json', profile);
-    writeData('inventory.json', inventory);
+    io.write('player_profile.json', profile);
+    io.write('inventory.json', inventory);
     res.json({ profile, inventory });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2539,8 +2681,9 @@ app.post('/api/equip', (req, res) => {
   const { bag_index } = req.body;
   if (bag_index === undefined || bag_index < 0) return res.status(400).json({ error: 'Indice non valido' });
   try {
-    const profile   = readData('player_profile.json');
-    const inventory = readData('inventory.json');
+    const io = userIO(req.username);
+    const profile   = io.read('player_profile.json');
+    const inventory = io.read('inventory.json');
     const bag       = inventory.bag || [];
     if (bag_index >= bag.length) return res.status(400).json({ error: 'Oggetto non in borsa' });
 
@@ -2561,8 +2704,8 @@ app.post('/api/equip', (req, res) => {
     inventory.bag = bag;
 
     recalcEquipmentBonuses(inventory);
-    writeData('player_profile.json', profile);
-    writeData('inventory.json', inventory);
+    io.write('player_profile.json', profile);
+    io.write('inventory.json', inventory);
     res.json({ profile, inventory, itemName: item.name, slot });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2573,8 +2716,9 @@ app.post('/api/unequip', (req, res) => {
   const validSlots = ['weapon','offhand','head','chest','legs','boots','accessory_1','accessory_2'];
   if (!validSlots.includes(slot)) return res.status(400).json({ error: 'Slot non valido' });
   try {
-    const profile   = readData('player_profile.json');
-    const inventory = readData('inventory.json');
+    const io = userIO(req.username);
+    const profile   = io.read('player_profile.json');
+    const inventory = io.read('inventory.json');
     const item      = inventory.equipped[slot];
     if (!item) return res.status(400).json({ error: 'Nessun oggetto equipaggiato in questo slot' });
 
@@ -2599,8 +2743,8 @@ app.post('/api/unequip', (req, res) => {
     inventory.equipped[slot] = null;
 
     recalcEquipmentBonuses(inventory);
-    writeData('player_profile.json', profile);
-    writeData('inventory.json', inventory);
+    io.write('player_profile.json', profile);
+    io.write('inventory.json', inventory);
     res.json({ profile, inventory, itemName: item.name });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2610,8 +2754,9 @@ app.post('/api/use-item', (req, res) => {
   const { bag_index } = req.body;
   if (bag_index === undefined || bag_index < 0) return res.status(400).json({ error: 'Indice non valido' });
   try {
-    const profile   = readData('player_profile.json');
-    const inventory = readData('inventory.json');
+    const io = userIO(req.username);
+    const profile   = io.read('player_profile.json');
+    const inventory = io.read('inventory.json');
     const bag       = inventory.bag || [];
     if (bag_index >= bag.length) return res.status(400).json({ error: 'Oggetto non in borsa' });
 
@@ -2647,8 +2792,8 @@ app.post('/api/use-item', (req, res) => {
     }
     inventory.bag = bag;
 
-    writeData('player_profile.json', profile);
-    writeData('inventory.json', inventory);
+    io.write('player_profile.json', profile);
+    io.write('inventory.json', inventory);
     res.json({ profile, inventory, itemName: item.name, effects, effects_text });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2657,8 +2802,9 @@ app.post('/api/use-item', (req, res) => {
 app.post('/api/shop/sell', (req, res) => {
   const { item_index, source } = req.body; // source: 'bag'
   try {
-    const profile = readData('player_profile.json');
-    const inventory = readData('inventory.json');
+    const io = userIO(req.username);
+    const profile = io.read('player_profile.json');
+    const inventory = io.read('inventory.json');
 
     const bag = inventory.bag || [];
     if (item_index < 0 || item_index >= bag.length) return res.status(400).json({ error: 'Indice non valido' });
@@ -2669,8 +2815,8 @@ app.post('/api/shop/sell', (req, res) => {
     bag.splice(item_index, 1);
     inventory.bag = bag;
 
-    writeData('player_profile.json', profile);
-    writeData('inventory.json', inventory);
+    io.write('player_profile.json', profile);
+    io.write('inventory.json', inventory);
     res.json({ profile, inventory, sellPrice, itemName: item.name });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2681,19 +2827,20 @@ app.post('/api/skill-loadout', (req, res) => {
   if (!Array.isArray(skill_ids)) {
     return res.status(400).json({ error: 'skill_ids deve essere un array' });
   }
-  const profile = readData('player_profile.json');
-  const skills = readData('skills_library.json');
-  const gameState = readData('game_state.json');
+  const io = userIO(req.username);
+  const profile = io.read('player_profile.json');
+  const skills = io.read('skills_library.json');
+  const gameState = io.read('game_state.json');
   if (skill_ids.length > (profile.skill_slots || 4)) {
     return res.status(400).json({ error: `Massimo ${profile.skill_slots} skill nel loadout` });
   }
   gameState.skill_loadout = skill_ids
     .map(id => skills.skills.find(s => s.id === id))
     .filter(Boolean);
-  writeData('game_state.json', gameState);
+  io.write('game_state.json', gameState);
   res.json({
     skill_loadout: gameState.skill_loadout,
-    gameState: readData('game_state.json'),
+    gameState: io.read('game_state.json'),
   });
 });
 
@@ -2714,9 +2861,10 @@ app.put('/api/world-map', (req, res) => {
 
 app.post('/api/gm-mode', (req, res) => {
   try {
-    const gs = readData('game_state.json');
+    const io = userIO(req.username);
+    const gs = io.read('game_state.json');
     gs.gm_mode = !gs.gm_mode;
-    writeData('game_state.json', gs);
+    io.write('game_state.json', gs);
     res.json({ gm_mode: gs.gm_mode });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2725,12 +2873,13 @@ app.post('/api/gm-respond', (req, res) => {
   const { narrative } = req.body;
   if (!narrative?.trim()) return res.status(400).json({ error: 'Narrative vuota' });
   try {
-    const gs = readData('game_state.json');
+    const io = userIO(req.username);
+    const gs = io.read('game_state.json');
     gs.session_log = [...(gs.session_log || []).slice(-27), { role: 'assistant', content: narrative.trim() }];
-    writeData('game_state.json', gs);
+    io.write('game_state.json', gs);
     res.json({
       narrative: narrative.trim(),
-      state: { profile: readData('player_profile.json'), inventory: readData('inventory.json'), skills: readData('skills_library.json'), gameState: readData('game_state.json') },
+      state: { profile: io.read('player_profile.json'), inventory: io.read('inventory.json'), skills: io.read('skills_library.json'), gameState: io.read('game_state.json') },
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2739,8 +2888,9 @@ app.post('/api/gm-respond', (req, res) => {
 
 app.get('/api/export', (req, res) => {
   try {
-    const profile   = readData('player_profile.json');
-    const gameState = readData('game_state.json');
+    const io = userIO(req.username);
+    const profile   = io.read('player_profile.json');
+    const gameState = io.read('game_state.json');
     const log       = gameState.session_log || [];
 
     const lines = [
@@ -2788,10 +2938,12 @@ app.post('/api/slots/:id/save', (req, res) => {
   const { id } = req.params;
   if (!['1', '2', '3'].includes(id)) return res.status(400).json({ error: 'Slot non valido' });
   try {
+    const io = userIO(req.username);
     const dir = path.join(SLOTS_DIR, `slot_${id}`);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     for (const file of SLOT_FILES) {
-      const src = path.join(DATA_DIR, file);
+      const srcDir = USER_DATA_FILES.has(file) ? getUserDir(req.username) : DATA_DIR;
+      const src = path.join(srcDir, file);
       if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dir, file));
     }
     res.json({ ok: true, meta: getSlotMeta(id) });
@@ -2802,16 +2954,18 @@ app.post('/api/slots/:id/load', (req, res) => {
   const { id } = req.params;
   if (!['1', '2', '3'].includes(id)) return res.status(400).json({ error: 'Slot non valido' });
   try {
+    const io = userIO(req.username);
     const dir = path.join(SLOTS_DIR, `slot_${id}`);
     for (const file of SLOT_FILES) {
       const src = path.join(dir, file);
-      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(DATA_DIR, file));
+      const dstDir = USER_DATA_FILES.has(file) ? getUserDir(req.username) : DATA_DIR;
+      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dstDir, file));
     }
     res.json({
-      profile:   readData('player_profile.json'),
-      inventory: readData('inventory.json'),
-      skills:    readData('skills_library.json'),
-      gameState: readData('game_state.json'),
+      profile:   io.read('player_profile.json'),
+      inventory: io.read('inventory.json'),
+      skills:    io.read('skills_library.json'),
+      gameState: io.read('game_state.json'),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2836,8 +2990,9 @@ app.get('/api/recipes', (req, res) => {
   try {
     let catalog;
     try { catalog = readData('recipes_catalog.json'); } catch { return res.json({ recipes: [] }); }
-    const profile   = readData('player_profile.json');
-    const inventory = readData('inventory.json');
+    const io = userIO(req.username);
+    const profile   = io.read('player_profile.json');
+    const inventory = io.read('inventory.json');
     const bag       = inventory.bag || [];
 
     const enriched = (catalog.recipes || []).map(recipe => {
@@ -2864,8 +3019,9 @@ app.post('/api/craft', (req, res) => {
     const recipe = (catalog.recipes || []).find(r => r.id === recipe_id);
     if (!recipe) return res.status(404).json({ error: `Ricetta "${recipe_id}" non trovata` });
 
-    const profile   = readData('player_profile.json');
-    const inventory = readData('inventory.json');
+    const io = userIO(req.username);
+    const profile   = io.read('player_profile.json');
+    const inventory = io.read('inventory.json');
     const bag       = inventory.bag || [];
     const required  = recipe.required || {};
     const moneyCost = recipe.money_cost || 0;
@@ -2917,16 +3073,16 @@ app.post('/api/craft', (req, res) => {
     inventory.bag = [...bag, newItem];
 
     // Inietta evento narrativo al prossimo turno
-    const gameState = readData('game_state.json');
+    const gameState = io.read('game_state.json');
     gameState.pending_narrative_events = gameState.pending_narrative_events || [];
     const ingredientsDesc = Object.entries(required).map(([k, v]) => `${v}× ${k.replace(/_/g, ' ')}`).join(', ');
     gameState.pending_narrative_events.push(
       `[⚒ CRAFT_SUCCESS: ${newItem.name}] Il giocatore ha forgiato "${newItem.name}" usando ${ingredientsDesc}${moneyCost ? ` (-${moneyCost} R)` : ''}. Nel prossimo turno NARRA obbligatoriamente la forgiatura dell'oggetto (fucina, scintille, risultato finale).`
     );
 
-    writeData('player_profile.json', profile);
-    writeData('inventory.json', inventory);
-    writeData('game_state.json', gameState);
+    io.write('player_profile.json', profile);
+    io.write('inventory.json', inventory);
+    io.write('game_state.json', gameState);
     console.log(`[Craft] ${recipe_id} → ${newItem.name} (appraised: ${newItem.appraised})`);
     res.json({ ok: true, item: newItem, profile, inventory });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -2939,9 +3095,10 @@ app.post('/api/appraise', (req, res) => {
   const { bag_index } = req.body;
   if (bag_index === undefined || bag_index < 0) return res.status(400).json({ error: 'Indice non valido' });
   try {
-    const profile   = readDataSafe('player_profile.json');
-    const inventory = readData('inventory.json');
-    const gameState = readData('game_state.json');
+    const io = userIO(req.username);
+    const profile   = io.readSafe('player_profile.json');
+    const inventory = io.read('inventory.json');
+    const gameState = io.read('game_state.json');
     const bag       = inventory.bag || [];
     if (bag_index >= bag.length) return res.status(400).json({ error: 'Oggetto non in borsa' });
 
@@ -3005,9 +3162,9 @@ app.post('/api/appraise', (req, res) => {
       );
     }
 
-    writeData('player_profile.json', profile);
-    writeData('inventory.json', inventory);
-    writeData('game_state.json', gameState);
+    io.write('player_profile.json', profile);
+    io.write('inventory.json', inventory);
+    io.write('game_state.json', gameState);
     console.log(`[Appraise] ${item.name} → special:${special || 'none'} (fee: ${APPRAISE_FEE}R)`);
     res.json({ ok: true, item, special, fee: APPRAISE_FEE, profile, inventory });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -3019,9 +3176,10 @@ app.post('/api/repair', (req, res) => {
   const validSlots = ['weapon','offhand','head','chest','legs','boots','accessory_1','accessory_2'];
   if (!validSlots.includes(slot)) return res.status(400).json({ error: 'Slot non valido' });
   try {
-    const profile   = readDataSafe('player_profile.json');
-    const inventory = readData('inventory.json');
-    const gameState = readData('game_state.json');
+    const io = userIO(req.username);
+    const profile   = io.readSafe('player_profile.json');
+    const inventory = io.read('inventory.json');
+    const gameState = io.read('game_state.json');
 
     if (gameState.zone_type !== 'safe_zone') {
       return res.status(400).json({ error: 'La riparazione è disponibile solo in una zona sicura (Bottega di Goro).' });
@@ -3065,8 +3223,8 @@ app.post('/api/repair', (req, res) => {
     inventory.bag = bag;
 
     recalcEquipmentBonuses(inventory);
-    writeData('player_profile.json', profile);
-    writeData('inventory.json', inventory);
+    io.write('player_profile.json', profile);
+    io.write('inventory.json', inventory);
     console.log(`[Repair] ${item.name} → durabilità ripristinata a ${maxDur} (costo: ${REPAIR_COST}R)`);
     res.json({ ok: true, item, repairCost: REPAIR_COST, materialUsed: MATERIAL_ID, profile, inventory });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -3077,12 +3235,13 @@ app.post('/api/party/add', (req, res) => {
   const { npc_id, name, hp, vit, role } = req.body;
   if (!npc_id || !name) return res.status(400).json({ error: 'npc_id e name obbligatori' });
   try {
-    const gameState = readData('game_state.json');
+    const io = userIO(req.username);
+    const gameState = io.read('game_state.json');
     gameState.party = gameState.party || [];
     if (gameState.party.find(m => m.npc_id === npc_id)) return res.status(409).json({ error: 'NPC già nel party' });
     const member = { npc_id, name, hp: hp || 100, max_hp: hp || 100, vit: vit || 10, role: role || 'support' };
     gameState.party.push(member);
-    writeData('game_state.json', gameState);
+    io.write('game_state.json', gameState);
     res.json({ ok: true, party: gameState.party });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -3092,9 +3251,10 @@ app.delete('/api/party/remove', (req, res) => {
   const { npc_id } = req.body;
   if (!npc_id) return res.status(400).json({ error: 'npc_id obbligatorio' });
   try {
-    const gameState = readData('game_state.json');
+    const io = userIO(req.username);
+    const gameState = io.read('game_state.json');
     gameState.party = (gameState.party || []).filter(m => m.npc_id !== npc_id);
-    writeData('game_state.json', gameState);
+    io.write('game_state.json', gameState);
     res.json({ ok: true, party: gameState.party });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

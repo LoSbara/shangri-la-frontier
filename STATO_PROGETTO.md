@@ -1,7 +1,7 @@
 # Shangri-La Frontier — Stato del Progetto
 
 > Documento di riferimento completo per discussioni sull'avanzamento del progetto.  
-> Ultimo aggiornamento: 2026-06-17 (sessione 21 — Appraisal API con Vincoli/Maledizioni, Multi-Phase Boss Engine, Durabilità Dinamica Armi)
+> Ultimo aggiornamento: 2026-06-17 (sessione 22 — Multi-user isolation, Game Over/Respawn autorevole, World Flags in prefix cache)
 
 ---
 
@@ -521,6 +521,30 @@ Endpoint: `GET /slots`, `POST /slots/:id/save`, `POST /slots/:id/load`, `DELETE 
 - `overdrive_multiplier`: flag transitorio in gameState, consumato al primo `COMBAT_HIT_ENEMY` del turno
 - `enemy_staggered_this_turn`: flag transitorio, impedisce pre-computo attacco nemico, eliminato dopo `processBattleTags`
 - UI: barra gradiente sotto il pannello combattimento, pulsante a 80+ (giallo→rosso pulsante), flash dorato OVERDRIVE, shake STAGGER
+
+### 8.25 Multi-User Isolation & Concurrent FIFO Queues (Sessione 22)
+- `chatTail` globale → `chatTails = {}` (mappa per-utente); ogni richiesta accodata su `chatTails[username]`
+- Header `X-User-Id` estratto da middleware (`req.username`, default `'default'`, sanitizzato)
+- `USER_DATA_FILES` = set di file isolati per utente: `player_profile.json`, `inventory.json`, `game_state.json`, `skills_library.json`, `bestiary.json`, `npcs.json`, `travel_diary.json`
+- `getUserDir(username)` crea `data/save/<username>/` con seed dai file globali al primo accesso
+- `readUD(u,f)`, `readUDSafe(u,f)`, `writeUD(u,f,d)`, `bakUD(u,f)` — helpers per-utente con fallback .bak
+- `userIO(username)` — factory object `{ read, readSafe, write, bak }` usato in tutti i ~32 endpoint
+- File globali (shop.json, world_map.json, cataloghi statici) restano su `DATA_DIR` con `readData`/`writeData`
+
+### 8.26 Game Over & Respawn Autorevole (Sessione 22)
+- In `processBattleTags` → `COMBAT_HIT_PLAYER`: se `HP.current ≤ 0` dopo il danno:
+  - Penalità: -20% oro corrente
+  - HP impostato a 1 (minimo vitale)
+  - Combattimento azzerato: `combat_active=false`, `current_enemy=null`, `threat_table={}`, `tactical_tension=0`
+  - Teleport: `location='Crysta'`, `sub_location='Locanda della Città d'Inizio'`, `zone_type='safe_zone'`
+  - Inietta `[💀 PLAYER_DIED_RESPAWN_ACTIVE]` in `pending_narrative_events` (narrazione obbligatoria dissoluzione/respawn)
+  - UI event `PLAYER_DEATH` → dissolvenza a nero + "GAME OVER" rosso per 3.2s poi fade-out
+
+### 8.27 World Flags & Prefix Cache Livello 2 (Sessione 22)
+- `profile.flags = {}` inizializzato nel profilo (e in `/api/reset`)
+- Al kill di un mostro con `is_boss: true` o `is_unique: true` in `monsters_catalog.json`: imposta `profile.flags[<name>_defeated] = true`
+- `buildSystemPrompt` accetta `npcsData` e `worldFlagsBlock` come parametri (no read interna se forniti)
+- `worldFlagsBlock` inserito nel **Livello 2 semi-statico** del prompt: cambia solo al kill boss, massimizzando il prefix cache hit di DeepSeek; se `guardiano_antico_del_bosco_defeated` → inietta testo narrativo permanente sullo stato del mondo
 
 ### 8.22 Appraisal API & Oggetti Vincolati/Maledetti (Sessione 21)
 - `POST /api/appraise { bag_index }` — valutazione professionale a 30R: svela stat variance, applica proprietà speciali a oggetti `is_unique`
