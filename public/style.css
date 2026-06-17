@@ -2624,4 +2624,71 @@ body.ui-shake { animation: ui-shake 0.7s ease-in-out; }
   color: var(--text-dim);
   cursor: not-allowed;
 }
+
+/* ── Weapon Durability Bar ───────────────────────────────────────────────────── */
+.dur-bar-track {
+  height: 4px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 3px 0;
+}
+.dur-bar-fill {
+  height: 100%;
+  background: var(--hp);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+.dur-bar-fill.dur-low {
+  background: #eab308;
+  animation: dur-pulse 1s ease-in-out infinite alternate;
+}
+.dur-bar-fill.dur-broken {
+  background: #6b7280;
+  width: 100% !important;
+}
+@keyframes dur-pulse {
+  from { opacity: 1; }
+  to   { opacity: 0.4; }
+}
+.slot-broken {
+  opacity: 0.55;
+  border-color: #6b7280 !important;
+}
+.weapon-broken-flash {
+  animation: weapon-broken-anim 1.2s ease;
+}
+@keyframes weapon-broken-anim {
+  0%,100% { background: transparent; }
+  20%     { background: rgba(107,114,128,0.5); }
+  60%     { background: rgba(107,114,128,0.2); }
+}
+.repair-btn {
+  background: none;
+  border: 1px solid var(--stm);
+  color: var(--stm);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.repair-btn:hover { background: rgba(245,158,11,0.15); }
+
+/* ── Cursed Item Badge ───────────────────────────────────────────────────────── */
+.cursed-badge {
+  font-size: 10px;
+  vertical-align: middle;
+  margin-left: 2px;
+  filter: drop-shadow(0 0 3px #7c3aed);
+}
+
+/* ── Boss Phase Transition (global shake already in ui-shake, extra glow) ────── */
+@keyframes boss-phase-pulse {
+  0%,100% { box-shadow: inset 0 0 0 0 transparent; }
+  50%     { box-shadow: inset 0 0 30px 10px rgba(220,38,38,0.25); }
+}
+body.ui-shake .combat-panel {
+  animation: boss-phase-pulse 0.7s ease;
+}
 .loot-flash { animation: loot-flash 0.8s ease; }

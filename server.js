@@ -189,6 +189,19 @@ function totalStat(profile, inventory, stat) {
   return base + bonus;
 }
 
+// Raccoglie i vincoli (restrictions) da tutti gli oggetti equipaggiati.
+function getEquipRestrictions(inventory) {
+  const r = {};
+  for (const item of Object.values(inventory.equipped || {})) {
+    if (!item?.restrictions) continue;
+    for (const [key, val] of Object.entries(item.restrictions)) {
+      if (!(key in r)) r[key] = val;
+      else if (typeof val === 'number') r[key] = Math.min(r[key], val);
+    }
+  }
+  return r;
+}
+
 function recalcEquipmentBonuses(inventory) {
   const bonuses = { STR: 0, DEX: 0, AGI: 0, TEC: 0, VIT: 0, LUC: 0, HP_bonus: 0, MP_bonus: 0, STM_bonus: 0 };
   for (const item of Object.values(inventory.equipped || {})) {
@@ -517,7 +530,18 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
       if (tag.startsWith('COMBAT_HIT_PLAYER_')) {
         const enemy     = gameState.current_enemy;
         const monsterSTR = enemy?.stats?.STR ?? 8;
-        const playerVIT  = totalStat(profile, inventory, 'VIT');
+        // Armor restriction (es. Maledizione di Lycaon): azzera VIT da slot armatura
+        const equipR     = getEquipRestrictions(inventory);
+        let playerVIT;
+        if (equipR.max_armor_pieces === 0) {
+          const ARMOR_SLOTS = new Set(['head','chest','legs','boots']);
+          const armorVITBonus = Object.entries(inventory.equipped || {})
+            .filter(([s]) => ARMOR_SLOTS.has(s))
+            .reduce((sum, [, it]) => sum + (Number(it?.stat_bonus?.VIT) || 0), 0);
+          playerVIT = totalStat(profile, inventory, 'VIT') - armorVITBonus;
+        } else {
+          playerVIT = totalStat(profile, inventory, 'VIT');
+        }
         const defense    = Math.floor(playerVIT / 3);
         const damage     = Math.max(1, monsterSTR - defense);
         profile.stats.HP.current = Math.max(0, profile.stats.HP.current - damage);
@@ -552,8 +576,11 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
           if (enemyPartKeys.includes(tokens[k])) { bodyPart = tokens[k]; break; }
         }
 
-        // Calcola danno globale
-        const playerSTR  = totalStat(profile, inventory, 'STR');
+        // Calcola danno globale (STR/TEC; sottrarre bonus arma se arma rotta)
+        const weapEquipped = inventory.equipped?.weapon;
+        const weapBroken   = weapEquipped?.broken === true;
+        const weapSTRBonus = weapBroken ? (Number(weapEquipped?.stat_bonus?.STR) || 0) : 0;
+        const playerSTR  = totalStat(profile, inventory, 'STR') - weapSTRBonus;
         const playerTEC  = totalStat(profile, inventory, 'TEC');
         const baseAtk    = skillDef ? (skillDef.damage_type === 'tec' ? playerTEC : playerSTR) : playerSTR;
         const skillMult     = skillDef?.damage_multiplier ?? 1.0;
@@ -563,11 +590,34 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
         const damage        = Math.max(1, rawDmg - Math.floor(rawDmg * resistenza / 100));
         if (gameState.overdrive_multiplier) {
           delete gameState.overdrive_multiplier; // consumato al primo attacco
+          gameState.overdrive_fired_this_turn = true; // durabilità raddoppiata questo turno
           if (!uiEvents.includes('GOLDEN_GLOW')) uiEvents.push('GOLDEN_GLOW');
         }
         enemy.hp.current = Math.max(0, enemy.hp.current - damage);
         threatGenerated += damage;
         console.log(`[COMBAT→Enemy] ATK:${rawDmg}(×${overdriveMult}) − Res:${resistenza}% = ${damage} danno (HP: ${enemy.hp.current}/${enemy.hp.max})${bodyPart ? ' → parte: ' + bodyPart : ''}`);
+
+        // ── Durabilità arma — degrada per ogni colpo ─────────────────────────
+        if (weapEquipped && !weapBroken) {
+          const maxDur = weapEquipped.max_durability || 40;
+          let durLoss  = 1;
+          if (bodyPart && enemyParts[bodyPart] && !enemyParts[bodyPart].broken) durLoss += 1;
+          if (gameState.overdrive_fired_this_turn) durLoss *= 2;
+          weapEquipped.durability = Math.max(0, (weapEquipped.durability ?? maxDur) - durLoss);
+          if (weapEquipped.durability <= 0) {
+            weapEquipped.broken = true;
+            if (!uiEvents.includes('WEAPON_BROKEN')) uiEvents.push('WEAPON_BROKEN');
+            gameState.pending_narrative_events = gameState.pending_narrative_events || [];
+            gameState.pending_narrative_events.push(
+              `[⚒ WEAPON_BROKEN: ${weapEquipped.name}] L'arma "${weapEquipped.name}" si è SPEZZATA sotto l'impatto! ` +
+              `Il contributo ATK è azzerato fino a riparazione da Goro. NARRA obbligatoriamente il momento in cui l'arma si frantuma.`
+            );
+            console.log(`[Durability] ${weapEquipped.name} SPEZZATA`);
+          } else {
+            console.log(`[Durability] ${weapEquipped.name}: ${weapEquipped.durability}/${maxDur}`);
+          }
+          inventory.equipped.weapon = weapEquipped;
+        }
 
         // Part Break: 50% del danno alla parte bersagliata
         if (bodyPart && enemyParts[bodyPart] && !enemyParts[bodyPart].broken) {
@@ -593,6 +643,44 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
             tensionBreachSource = 'part_break'; // → STAGGER al raggiungimento soglia
           }
         }
+
+        // ── Boss Phase Trigger — controlla soglie HP dopo ogni colpo ─────────
+        const phaseTriggers = enemy.phase_triggers || [];
+        const currentPhase  = enemy.current_phase || 1;
+        if (phaseTriggers.length > 0 && enemy.hp.max > 0) {
+          const hpPct = (enemy.hp.current / enemy.hp.max) * 100;
+          for (const trigger of phaseTriggers) {
+            if (hpPct <= trigger.hp_threshold_pct && currentPhase < trigger.target_phase) {
+              enemy.current_phase = trigger.target_phase;
+              if (trigger.stat_modifiers && enemy.stats) {
+                for (const [stat, mult] of Object.entries(trigger.stat_modifiers)) {
+                  enemy.stats[stat] = Math.round((enemy.stats[stat] ?? 10) * mult);
+                }
+              }
+              if (trigger.clear_threat && gameState.threat_table) {
+                for (const k of Object.keys(gameState.threat_table)) gameState.threat_table[k] = 0;
+              }
+              if (trigger.unlock_skills) {
+                enemy.unlocked_skills = [...(enemy.unlocked_skills || []), ...trigger.unlock_skills];
+              }
+              const scenic = trigger.scenic_effect || 'AREA_TREMOR';
+              const modDesc = Object.entries(trigger.stat_modifiers || {}).map(([s, m]) => `${s}×${m}`).join(', ');
+              gameState.pending_narrative_events = gameState.pending_narrative_events || [];
+              gameState.pending_narrative_events.push(
+                `[⚡ BOSS_PHASE_TRANSITION: ${trigger.target_phase}, SCENIC_EFFECT: ${scenic}] ` +
+                `${enemy.name} entra nella FASE ${trigger.target_phase}! Stats potenziate: ${modDesc || 'nessuna'}. ` +
+                `${trigger.clear_threat ? 'Aggro resettato: il boss ignora chi aveva più minaccia. ' : ''}` +
+                `${(trigger.unlock_skills || []).length > 0 ? 'Nuove abilità sbloccate: ' + trigger.unlock_skills.join(', ') + '. ' : ''}` +
+                `NARRA OBBLIGATORIAMENTE una transizione spettacolare (trasformazione, urlo, esplosione di energia) prima di qualsiasi azione.`
+              );
+              const phaseEvt = `BOSS_PHASE_${trigger.target_phase}`;
+              if (!uiEvents.includes(phaseEvt)) uiEvents.push(phaseEvt);
+              console.log(`[Phase] ${enemy.name} → Fase ${trigger.target_phase} (HP: ${hpPct.toFixed(1)}%)`);
+              break; // una sola fase per colpo
+            }
+          }
+        }
+
         continue;
       }
 
@@ -1268,6 +1356,41 @@ app.post('/api/chat', (req, res) => {
       }
     }
 
+    // ── Equipment Restrictions, Curse & Weapon Durability directives ─────────
+    const equipR = getEquipRestrictions(inventory);
+    if (equipR.max_armor_pieces === 0) {
+      serverDirectives +=
+        `[⛓ EQUIP_RESTRICTION_ACTIVE: NO_ARMOR, VISUAL: BLACK_MARKS_ON_SKIN] ` +
+        `Il giocatore è afflitto da un vincolo di equipaggiamento: tutta la difesa proveniente da pezzi armatura è ANNULLATA server-side. ` +
+        `Marchi neri runali brillano sulla pelle quando il personaggio porta protezioni. ` +
+        `NARRA visivamente i segni oscuri e il senso di vulnerabilità dello Hunter.\n\n`;
+    }
+    const cursedItems = Object.values(inventory.equipped || {}).filter(it => it?.cursed);
+    if (cursedItems.length > 0) {
+      const cursedNames = cursedItems.map(it => it.name).join(', ');
+      serverDirectives +=
+        `[💀 CURSED_ITEM_EQUIPPED: ${cursedNames}] ` +
+        `Il giocatore porta oggetti maledetti (${cursedNames}) che non possono essere rimossi senza un Oggetto di Purificazione. ` +
+        `L'oggetto pulsa di energia oscura — NARRA questa sensazione pesante se rilevante.\n\n`;
+    }
+    const weapInChat = inventory.equipped?.weapon;
+    if (weapInChat) {
+      if (weapInChat.broken) {
+        serverDirectives +=
+          `[⚒ WEAPON_BROKEN: ${weapInChat.name}] ` +
+          `L'arma del giocatore è SPEZZATA — nessun bonus ATK da equipaggiamento. ` +
+          `Il giocatore combatte solo con forza base. NARRA il disagio tattico di combattere senza arma.\n\n`;
+      } else {
+        const curDur = weapInChat.durability ?? weapInChat.max_durability ?? 40;
+        const maxDur = weapInChat.max_durability ?? 40;
+        if (maxDur > 0 && curDur <= maxDur * 0.25) {
+          serverDirectives +=
+            `[⚠ WEAPON_DURABILITY_LOW: ${weapInChat.name} ${curDur}/${maxDur}] ` +
+            `L'arma è quasi al limite — crepe visibili sul metallo. NARRA i segni di usura sull'arma in modo atmosferico.\n\n`;
+        }
+      }
+    }
+
     const triggeredEvent = checkUniqueEventTriggers(profile, inventory, gameState);
     if (triggeredEvent) {
       serverDirectives +=
@@ -1699,6 +1822,7 @@ app.post('/api/chat', (req, res) => {
     }
     // Pulizia flag transitori post-AI (stagger/overdrive consumati questo turno)
     delete gameState.enemy_staggered_this_turn;
+    delete gameState.overdrive_fired_this_turn;
     if (gameState.overdrive_multiplier) delete gameState.overdrive_multiplier;
 
     // World state persistence: segna il nemico come morto se HP → 0
@@ -2428,6 +2552,11 @@ app.post('/api/equip', (req, res) => {
     if (currentlyEquipped) bag.push(currentlyEquipped);
 
     bag.splice(bag_index, 1);
+    // Inizializza durabilità per armi nuove
+    if (item.type === 'weapon' && item.durability === undefined && !item.broken) {
+      item.max_durability = item.max_durability || 40;
+      item.durability = item.max_durability;
+    }
     inventory.equipped[slot] = item;
     inventory.bag = bag;
 
@@ -2448,6 +2577,22 @@ app.post('/api/unequip', (req, res) => {
     const inventory = readData('inventory.json');
     const item      = inventory.equipped[slot];
     if (!item) return res.status(400).json({ error: 'Nessun oggetto equipaggiato in questo slot' });
+
+    // Oggetto maledetto — serve un Oggetto di Purificazione per rimuoverlo
+    if (item.cursed) {
+      const bag = inventory.bag || [];
+      const purIdx = bag.findIndex(it => it.id === 'oggetto_purificazione' || it.type === 'purification');
+      if (purIdx < 0) {
+        return res.status(400).json({
+          error: `"${item.name}" è maledetta. Serve un Oggetto di Purificazione per rimuoverla.`,
+          cursed: true,
+        });
+      }
+      const pur = bag[purIdx];
+      if ((pur.quantity || 1) <= 1) bag.splice(purIdx, 1);
+      else bag[purIdx].quantity -= 1;
+      delete item.cursed; // purificazione riuscita
+    }
 
     inventory.bag = inventory.bag || [];
     inventory.bag.push(item);
@@ -2784,6 +2929,146 @@ app.post('/api/craft', (req, res) => {
     writeData('game_state.json', gameState);
     console.log(`[Craft] ${recipe_id} → ${newItem.name} (appraised: ${newItem.appraised})`);
     res.json({ ok: true, item: newItem, profile, inventory });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /api/appraise — valutazione a pagamento con proprietà speciali ──────
+// Differisce da /api/appraise-item (check TEC gratuito): questo è il servizio
+// professionale di Goro che svela varianze, vincoli e possibili maledizioni.
+app.post('/api/appraise', (req, res) => {
+  const { bag_index } = req.body;
+  if (bag_index === undefined || bag_index < 0) return res.status(400).json({ error: 'Indice non valido' });
+  try {
+    const profile   = readDataSafe('player_profile.json');
+    const inventory = readData('inventory.json');
+    const gameState = readData('game_state.json');
+    const bag       = inventory.bag || [];
+    if (bag_index >= bag.length) return res.status(400).json({ error: 'Oggetto non in borsa' });
+
+    const item = bag[bag_index];
+    if (item.appraised !== false) return res.status(400).json({ error: 'Oggetto già identificato' });
+
+    const APPRAISE_FEE = 30;
+    if (profile.money < APPRAISE_FEE) {
+      return res.status(400).json({ error: `Servono almeno ${APPRAISE_FEE} R per la valutazione professionale.` });
+    }
+    profile.money -= APPRAISE_FEE;
+    item.appraised = true;
+
+    // Applica varianza statistica se definita nell'oggetto (da crafting/drop)
+    if (item.stat_variance_range) {
+      item.stat_bonus = item.stat_bonus || {};
+      for (const [stat, range] of Object.entries(item.stat_variance_range)) {
+        const [min, max] = Array.isArray(range) ? range : [0, Number(range)];
+        item.stat_bonus[stat] = (item.stat_bonus[stat] || 0) + Math.floor(Math.random() * (max - min + 1)) + min;
+      }
+      delete item.stat_variance_range;
+    }
+
+    // Proprietà speciali per oggetti unici (chance basata su LUC del giocatore)
+    let special = null;
+    if (item.is_unique) {
+      const luc  = (profile.stats.LUC || 0) + (inventory.stat_bonuses_from_equipment?.LUC || 0);
+      const roll = Math.random() * 100;
+      const cursedThreshold    = Math.max(5, 15  - luc * 0.5);
+      const restrictedThreshold = Math.min(40, 30 + luc * 0.5);
+      if (roll < cursedThreshold) {
+        item.cursed = true;
+        special = 'cursed';
+      } else if (roll < restrictedThreshold) {
+        item.restrictions = { max_armor_pieces: 0 };
+        special = 'restricted';
+      }
+    }
+
+    inventory.bag[bag_index] = item;
+
+    // Inietta evento narrativo al turno successivo
+    gameState.pending_narrative_events = gameState.pending_narrative_events || [];
+    if (special === 'cursed') {
+      gameState.pending_narrative_events.push(
+        `[🔮 APPRAISAL_RESULT: ${item.name}, CURSED] L'oggetto "${item.name}" è stato valutato da Goro: è MALEDETTO! ` +
+        `Un'energia oscura si avvolge attorno all'oggetto. Non può essere rimosso senza purificazione. ` +
+        `NARRA obbligatoriamente l'orrore della scoperta e la reazione dell'NPC.`
+      );
+    } else if (special === 'restricted') {
+      gameState.pending_narrative_events.push(
+        `[🔮 APPRAISAL_RESULT: ${item.name}, RESTRICTION_NO_ARMOR] L'oggetto "${item.name}" porta il Vincolo del Predatore: ` +
+        `chi lo indossa non può beneficiare di protezioni fisiche (difesa armatura annullata). ` +
+        `Marchi runali neri compaiono sulla pelle del portatore. ` +
+        `NARRA la scoperta con tono oscuro e affascinante, come la maledizione di Lycaon.`
+      );
+    } else {
+      gameState.pending_narrative_events.push(
+        `[🔮 APPRAISAL_RESULT: ${item.name}] Goro ha valutato "${item.name}" (-${APPRAISE_FEE} R). ` +
+        `NARRA brevemente la rivelazione delle sue proprietà nel prossimo turno.`
+      );
+    }
+
+    writeData('player_profile.json', profile);
+    writeData('inventory.json', inventory);
+    writeData('game_state.json', gameState);
+    console.log(`[Appraise] ${item.name} → special:${special || 'none'} (fee: ${APPRAISE_FEE}R)`);
+    res.json({ ok: true, item, special, fee: APPRAISE_FEE, profile, inventory });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /api/repair — ripara arma/armatura spezzata o logorata ───────────────
+app.post('/api/repair', (req, res) => {
+  const { slot = 'weapon' } = req.body || {};
+  const validSlots = ['weapon','offhand','head','chest','legs','boots','accessory_1','accessory_2'];
+  if (!validSlots.includes(slot)) return res.status(400).json({ error: 'Slot non valido' });
+  try {
+    const profile   = readDataSafe('player_profile.json');
+    const inventory = readData('inventory.json');
+    const gameState = readData('game_state.json');
+
+    if (gameState.zone_type !== 'safe_zone') {
+      return res.status(400).json({ error: 'La riparazione è disponibile solo in una zona sicura (Bottega di Goro).' });
+    }
+
+    const item = inventory.equipped?.[slot];
+    if (!item) return res.status(400).json({ error: 'Nessun oggetto equipaggiato in questo slot.' });
+    if (item.type !== 'weapon' && item.type !== 'armor') {
+      return res.status(400).json({ error: 'Solo armi e armature possono essere riparate.' });
+    }
+
+    const maxDur = item.max_durability || 40;
+    const curDur = item.durability ?? maxDur;
+    if (!item.broken && curDur >= maxDur) {
+      return res.status(400).json({ error: `"${item.name}" è già in perfetto stato.` });
+    }
+
+    const REPAIR_COST     = Math.floor(maxDur * 2.5);
+    const MATERIAL_ID     = 'frammento_ferro';
+    const MATERIAL_QTY    = 1;
+
+    if (profile.money < REPAIR_COST) {
+      return res.status(400).json({ error: `Servono ${REPAIR_COST} R per riparare "${item.name}".` });
+    }
+    const bag    = inventory.bag || [];
+    const matIdx = bag.findIndex(it => it.id === MATERIAL_ID);
+    if (matIdx < 0) {
+      return res.status(400).json({ error: `Serve ${MATERIAL_QTY}× frammento_ferro per la riparazione.` });
+    }
+
+    // Consuma risorse
+    profile.money -= REPAIR_COST;
+    const mat = bag[matIdx];
+    if ((mat.quantity || 1) <= MATERIAL_QTY) bag.splice(matIdx, 1);
+    else bag[matIdx].quantity -= MATERIAL_QTY;
+
+    // Ripara oggetto
+    item.durability = maxDur;
+    delete item.broken;
+    inventory.equipped[slot] = item;
+    inventory.bag = bag;
+
+    recalcEquipmentBonuses(inventory);
+    writeData('player_profile.json', profile);
+    writeData('inventory.json', inventory);
+    console.log(`[Repair] ${item.name} → durabilità ripristinata a ${maxDur} (costo: ${REPAIR_COST}R)`);
+    res.json({ ok: true, item, repairCost: REPAIR_COST, materialUsed: MATERIAL_ID, profile, inventory });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

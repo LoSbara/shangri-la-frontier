@@ -1,7 +1,7 @@
 # Shangri-La Frontier — Stato del Progetto
 
 > Documento di riferimento completo per discussioni sull'avanzamento del progetto.  
-> Ultimo aggiornamento: 2026-06-17 (sessione 20 — Crafting/Appraisal (Bottega di Goro), Tactical Tension Bar + Overdrive/Stagger, Aggro & Multitarget Combat con party NPC)
+> Ultimo aggiornamento: 2026-06-17 (sessione 21 — Appraisal API con Vincoli/Maledizioni, Multi-Phase Boss Engine, Durabilità Dinamica Armi)
 
 ---
 
@@ -66,6 +66,7 @@ Shanfro/
     ├── unique_monsters.json  # 8 boss unici
     ├── monsters_catalog.json # Drop table e parti anatomiche (dati statici design, separati da bestiary.json)
     ├── recipes_catalog.json  # Database ricette crafting statiche (5 ricette, stat_variance per appraisal)
+    └── monsters_catalog.json # (aggiornato S21) include "Guardiano Antico" con phase_triggers A-tier boss
     ├── world/               # Lore zone statiche (es. bosco_novizi.json)
     ├── save/                # World state per-player mutable ([player_id]_world_state.json)
     ├── backups/             # Snapshot automatici su level_up / unique event
@@ -521,6 +522,36 @@ Endpoint: `GET /slots`, `POST /slots/:id/save`, `POST /slots/:id/load`, `DELETE 
 - `enemy_staggered_this_turn`: flag transitorio, impedisce pre-computo attacco nemico, eliminato dopo `processBattleTags`
 - UI: barra gradiente sotto il pannello combattimento, pulsante a 80+ (giallo→rosso pulsante), flash dorato OVERDRIVE, shake STAGGER
 
+### 8.22 Appraisal API & Oggetti Vincolati/Maledetti (Sessione 21)
+- `POST /api/appraise { bag_index }` — valutazione professionale a 30R: svela stat variance, applica proprietà speciali a oggetti `is_unique`
+- Proprietà speciali: `cursed: true` (impossibile rimuovere senza Oggetto di Purificazione) o `restrictions: { max_armor_pieces: 0 }` (Vincolo del Predatore — difesa armatura annullata)
+- Probabilità basate su LUC del giocatore; oggetti normali solo `appraised: true`
+- `POST /api/unequip` ora blocca oggetti maledetti restituendo errore `cursed: true`; con Oggetto di Purificazione in borsa la maledizione viene rimossa automaticamente
+- Server inietta `[EQUIP_RESTRICTION_ACTIVE: NO_ARMOR]` e `[CURSED_ITEM_EQUIPPED]` in `serverDirectives` prima di ogni chiamata AI
+- `COMBAT_HIT_PLAYER`: se `max_armor_pieces: 0` è attivo, i bonus VIT dagli slot armatura sono esclusi dal calcolo difesa
+- `getEquipRestrictions(inventory)` — helper che aggrega i vincoli da tutti gli slot equipaggiati
+
+### 8.23 Multi-Phase Boss Engine (Sessione 21)
+- `phase_triggers` array in `monsters_catalog.json` e in `gameState.current_enemy`
+- Ogni trigger: `{ hp_threshold_pct, target_phase, stat_modifiers, clear_threat, scenic_effect, unlock_skills }`
+- `processBattleTags()` controlla la soglia HP dopo ogni `COMBAT_HIT_ENEMY`: se `hp_pct ≤ threshold` e `current_phase < target_phase`:
+  - Aggiorna `enemy.current_phase`
+  - Applica `stat_modifiers` (moltiplicatori su stats esistenti)
+  - Se `clear_threat: true`: azzera la `threat_table` (boss libero dall'aggro)
+  - Inietta `[⚡ BOSS_PHASE_TRANSITION]` in `pending_narrative_events`
+  - Emette `BOSS_PHASE_N` event UI (toast + shake)
+- Boss "Guardiano Antico del Bosco" (Tier A) aggiunto a `monsters_catalog.json` con 2 fasi (60% e 20% HP)
+- UI: toast "FASE N!" + shake + glow rosso sul pannello combattimento
+
+### 8.24 Durabilità Dinamica Armi (Sessione 21)
+- Ogni arma equipaggiata ha `durability` e `max_durability` (default 40); inizializzati al primo equip se assenti
+- Degradazione in `processBattleTags` per ogni `COMBAT_HIT_ENEMY`: -1 per colpo; -2 se la parte colpita non è ancora rotta; ×2 se `overdrive_fired_this_turn`
+- A `durability ≤ 0`: `broken: true`, `WEAPON_BROKEN` emesso, `pending_narrative_events` iniettato, ATK weapon zeroed
+- ATK zeroing: se `weapon.broken`, il bonus STR dell'arma è sottratto da `totalStat` prima del calcolo danno
+- `POST /api/repair { slot }` — disponibile solo in safe zone, costa `max_durability × 2.5` R + 1× `frammento_ferro`; ripristina durabilità e rimuove `broken`
+- Barra durabilità visuale nel pannello equipaggiamento (verde → giallo pulsante a 25% → grigio se rotta); pulsante 🔧 appare se riparazione disponibile
+- `serverDirectives` avvisa l'AI: barra a 25% → warning atmosferico; arma rotta → ingiunzione a narrare disagio tattico
+
 ### 8.21 Aggro & Multitarget Combat (Party NPC)
 - `gameState.party` — array NPC alleati con `{ npc_id, name, hp, max_hp, vit }`
 - `gameState.threat_table` — `{ player: N, [npc_id]: N }` aggiornato ogni turno
@@ -564,6 +595,8 @@ Endpoint: `GET /slots`, `POST /slots/:id/save`, `POST /slots/:id/load`, `DELETE 
 | POST | `/api/craft` | Crafta un oggetto (consuma ingredienti) |
 | POST | `/api/party/add` | Aggiunge NPC alleato al party |
 | DELETE | `/api/party/remove` | Rimuove NPC dal party |
+| POST | `/api/appraise` | Valutazione professionale (30R, proprietà speciali) |
+| POST | `/api/repair` | Ripara arma/armatura (safe zone, materiali) |
 | POST | `/api/equip` | Equipaggia oggetto da borsa |
 | POST | `/api/unequip` | Rimuove oggetto equipaggiato |
 | POST | `/api/use-item` | Usa consumabile |

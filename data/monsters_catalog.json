@@ -54,6 +54,40 @@
       }
     },
     {
+      "name": "Guardiano Antico del Bosco",
+      "tier": "A",
+      "is_unique": true,
+      "drop_table": [
+        { "item_id": "cuore_guardiano",     "name": "Cuore del Guardiano",      "chance": 100, "type": "material", "price": 300, "rarity": "raro",      "is_unique": true, "appraised": false },
+        { "item_id": "corteccia_antica",    "name": "Corteccia Incantata",      "chance": 60,  "type": "material", "price": 80,  "rarity": "non_comune" },
+        { "item_id": "seme_mondo",          "name": "Seme del Mondo Antico",    "chance": 20,  "type": "material", "price": 200, "rarity": "raro",      "appraised": false },
+        { "item_id": "gemma_foresta",       "name": "Gemma della Foresta",      "chance": 8,   "type": "material", "price": 450, "rarity": "epico",     "appraised": false, "is_unique": true }
+      ],
+      "parts": {
+        "bark":   { "hp": 80, "break_debuff": { "resistenza": 15 } },
+        "roots":  { "hp": 60, "break_debuff": { "AGI": 6 } },
+        "eye":    { "hp": 40, "break_debuff": { "STR": 8, "resistenza": 10 } }
+      },
+      "phase_triggers": [
+        {
+          "hp_threshold_pct": 60,
+          "target_phase": 2,
+          "stat_modifiers": { "STR": 1.4, "AGI": 1.2 },
+          "clear_threat": true,
+          "scenic_effect": "BARK_EXPLOSION_SPORE_CLOUD",
+          "unlock_skills": []
+        },
+        {
+          "hp_threshold_pct": 20,
+          "target_phase": 3,
+          "stat_modifiers": { "STR": 1.8, "resistenza": 1.3 },
+          "clear_threat": false,
+          "scenic_effect": "ROOT_ERUPTION_GROUND_SHATTER",
+          "unlock_skills": ["disperazione_del_guardiano"]
+        }
+      ]
+    },
+    {
       "name": "Orso delle Caverne",
       "drop_table": [
         { "item_id": "pelliccia_orso",      "name": "Pelliccia d'Orso",       "chance": 80, "type": "material", "price": 35, "rarity": "comune" },

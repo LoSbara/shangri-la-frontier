@@ -289,6 +289,15 @@ function dispatchUIEvents(events) {
       const npcId = ev.slice('NPC_HIT_'.length);
       const card  = document.querySelector(`[data-npc-id="${npcId}"]`);
       if (card) { card.classList.add('party-hit-flash'); setTimeout(() => card.classList.remove('party-hit-flash'), 600); }
+    } else if (ev === 'WEAPON_BROKEN') {
+      showPartBreakToast('ARMA SPEZZATA!', '#6b7280', '⚒');
+      const weapSlot = document.querySelector('[data-slot="weapon"]');
+      if (weapSlot) { weapSlot.classList.add('weapon-broken-flash'); setTimeout(() => weapSlot.classList.remove('weapon-broken-flash'), 1200); }
+    } else if (ev.startsWith('BOSS_PHASE_')) {
+      const phase = ev.slice('BOSS_PHASE_'.length);
+      showPartBreakToast(`FASE ${phase}!`, '#dc2626', '⚡');
+      document.body.classList.add('ui-shake');
+      setTimeout(() => document.body.classList.remove('ui-shake'), 700);
     }
   });
 }
@@ -400,6 +409,37 @@ async function craftItem(recipeId) {
     if (result.state) { currentState = result.state; updateUI(result.state); }
   } catch (e) {
     addSystemMsg(`⚠ Craft fallito: ${e.message}`);
+  }
+}
+
+// Appraisal professionale (con tariffa, stat variance, possibili proprietà speciali)
+async function appraiseItem(bagIndex) {
+  try {
+    const result = await apiFetch('/api/appraise', { method: 'POST', body: JSON.stringify({ bag_index: bagIndex }) });
+    const item = result.item;
+    let msg = `🔮 "${item.name}" valutato (-${result.fee} R).`;
+    if (result.special === 'cursed')     msg += ' ⚠ MALEDETTO — non rimovibile senza purificazione!';
+    if (result.special === 'restricted') msg += ' ⛓ Vincolo del Predatore — armatura annullata!';
+    addSystemMsg(msg);
+    if (result.profile && result.inventory) {
+      currentState = { ...currentState, profile: result.profile, inventory: result.inventory };
+      updateUI(currentState);
+    }
+  } catch (e) {
+    addSystemMsg(`⚠ Valutazione fallita: ${e.message}`);
+  }
+}
+
+async function repairItem(slot) {
+  try {
+    const result = await apiFetch('/api/repair', { method: 'POST', body: JSON.stringify({ slot }) });
+    addSystemMsg(`🔧 "${result.item.name}" riparata (-${result.repairCost} R, 1× frammento_ferro).`);
+    if (result.profile && result.inventory) {
+      currentState = { ...currentState, profile: result.profile, inventory: result.inventory };
+      updateUI(currentState);
+    }
+  } catch (e) {
+    addSystemMsg(`⚠ Riparazione fallita: ${e.message}`);
   }
 }
 
@@ -566,13 +606,29 @@ function renderEquipment(equipped) {
   document.getElementById('equipment-slots').innerHTML =
     Object.entries(SLOT_LABELS).map(([key, label]) => {
       const item = equipped[key];
-      if (!item) return `<div class="equip-slot"><span class="equip-slot-name">${label}</span><span class="equip-slot-empty">vuoto</span></div>`;
+      if (!item) return `<div class="equip-slot" data-slot="${key}"><span class="equip-slot-name">${label}</span><span class="equip-slot-empty">vuoto</span></div>`;
       const enh = item.enhancement_level || 0;
       const canEnh = hasMaterials && item.type !== 'consumable' && enh < 5;
       const enhBadge = enh > 0 ? ` <span class="bag-enhance-badge">+${enh}</span>` : '';
-      return `<div class="equip-slot">
+      const cursedBadge = item.cursed ? ` <span class="cursed-badge" title="Maledetto">💀</span>` : '';
+      // Barra durabilità per armi
+      let durBar = '';
+      if (item.type === 'weapon') {
+        const maxDur = item.max_durability || 40;
+        const curDur = item.broken ? 0 : (item.durability ?? maxDur);
+        const durPct = maxDur > 0 ? Math.max(0, Math.min(100, (curDur / maxDur) * 100)) : 100;
+        const durClass = item.broken ? 'dur-broken' : curDur <= maxDur * 0.25 ? 'dur-low' : '';
+        const hasMat = bag.some(it => it.id === 'frammento_ferro');
+        const inSafe = currentState?.gameState?.zone_type === 'safe_zone';
+        const canRepair = (item.broken || curDur < maxDur) && hasMat && inSafe;
+        durBar = `<div class="dur-bar-track" title="${curDur}/${maxDur} durabilità">
+          <div class="dur-bar-fill ${durClass}" style="width:${durPct}%"></div>
+        </div>${canRepair ? `<button class="repair-btn" onclick="repairItem('${key}')" title="Ripara">🔧</button>` : ''}`;
+      }
+      return `<div class="equip-slot${item.broken ? ' slot-broken' : ''}" data-slot="${key}">
         <span class="equip-slot-name">${label}</span>
-        <span class="equip-slot-item">${item.name}${enhBadge}</span>
+        <span class="equip-slot-item">${item.name}${enhBadge}${cursedBadge}</span>
+        ${durBar}
         <div style="display:flex;gap:3px">
           ${canEnh ? `<button class="equip-enh-btn" onclick="enhanceItem('${key}',null)" title="Potenzia">✦</button>` : ''}
           <button class="equip-unequip-btn" onclick="unequipItem('${key}')" title="Rimuovi">✕</button>
