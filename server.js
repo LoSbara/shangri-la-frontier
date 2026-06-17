@@ -237,6 +237,18 @@ function writeData(filename, data) {
   fs.writeFileSync(path.join(DATA_DIR, filename), JSON.stringify(data, null, 2));
 }
 
+// ─── Annunci Globali ──────────────────────────────────────────────────────────
+const GLOBAL_ANNOUNCE_FILE = path.join(DATA_DIR, 'global_announcements.json');
+
+function appendGlobalAnnouncement(username, text) {
+  let arr = [];
+  try { arr = JSON.parse(fs.readFileSync(GLOBAL_ANNOUNCE_FILE, 'utf-8')); } catch {}
+  if (!Array.isArray(arr)) arr = [];
+  arr.push({ timestamp: new Date().toISOString(), username, text });
+  if (arr.length > 20) arr = arr.slice(-20);
+  try { fs.writeFileSync(GLOBAL_ANNOUNCE_FILE, JSON.stringify(arr, null, 2)); } catch {}
+}
+
 function deepMerge(target, source) {
   if (!source || typeof source !== 'object') return target;
   for (const key of Object.keys(source)) {
@@ -463,7 +475,7 @@ function locationToZoneFile(location) {
 
 // Applica i battle_tags come fonte di verità matematica sullo stato,
 // partendo dallo snapshot PRE-TURNO per immunizzarsi da allucinazioni numeriche dell'AI.
-function processBattleTags(tags, profile, inventory, skills, gameState, snap, uiEvents) {
+function processBattleTags(tags, profile, inventory, skills, gameState, snap, uiEvents, combatLogs = []) {
   let tensionDelta = 0;          // delta tensione tattica accumulato questo turno
   let tensionBreachSource = null; // 'part_break' → STAGGER, null → OVERDRIVE
   let threatGenerated = 0;        // danno inflitto al nemico → aggiorna threat_table
@@ -485,6 +497,15 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
               slot: null, stat_bonus: {}, rarity: 'comune',
               price: 0, quantity: qty, appraised: true,
             });
+          }
+          // ── Bounty loot tracking ─────────────────────────────────────────────
+          const _bqLoot = (profile.bounty_quests || []).find(q => q.type === 'loot' && q.target_id === itemId && !q.ready_to_claim && !q.completed);
+          if (_bqLoot) {
+            _bqLoot.progress = Math.min(_bqLoot.quantity_required, (_bqLoot.progress || 0) + qty);
+            if (_bqLoot.progress >= _bqLoot.quantity_required) {
+              _bqLoot.ready_to_claim = true;
+              uiEvents.push(`BOUNTY_READY_${_bqLoot.id}`);
+            }
           }
         } else {
           const idx = inventory.bag.findIndex(it => it.id === itemId);
@@ -640,6 +661,7 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
           console.log(`[DEATH] Respawn attivato — penalità: -${goldPenalty}R, location: Crysta`);
         }
         console.log(`[COMBAT→Player] MonsterSTR:${monsterSTR} − DEF:${defense} = ${damage} danno (HP: ${profile.stats.HP.current}/${profile.stats.HP.max})`);
+        combatLogs.push({ type: 'damage_received', value: damage, label: `${gameState.current_enemy?.name || '?'} infligge ${damage} danni — HP: ${profile.stats.HP.current}/${profile.stats.HP.max}` });
         if (!uiEvents.includes('SCREEN_SHAKE')) uiEvents.push('SCREEN_SHAKE');
         if (damage >= 10) uiEvents.push('RED_FLASH');
         continue;
@@ -682,6 +704,7 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
         const rawDmg        = Math.floor(baseAtk * skillMult * overdriveMult);
         const damage        = Math.max(1, rawDmg - Math.floor(rawDmg * resistenza / 100));
         if (gameState.overdrive_multiplier) {
+          combatLogs.push({ type: 'overdrive', label: `⚡ OVERDRIVE ×${overdriveMult}!` });
           delete gameState.overdrive_multiplier; // consumato al primo attacco
           gameState.overdrive_fired_this_turn = true; // durabilità raddoppiata questo turno
           if (!uiEvents.includes('GOLDEN_GLOW')) uiEvents.push('GOLDEN_GLOW');
@@ -689,6 +712,7 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
         enemy.hp.current = Math.max(0, enemy.hp.current - damage);
         threatGenerated += damage;
         console.log(`[COMBAT→Enemy] ATK:${rawDmg}(×${overdriveMult}) − Res:${resistenza}% = ${damage} danno (HP: ${enemy.hp.current}/${enemy.hp.max})${bodyPart ? ' → parte: ' + bodyPart : ''}`);
+        combatLogs.push({ type: 'damage_dealt', value: damage, label: `${skillDef ? (skillDef.name || skillDef.id) : 'Attacco'} → ${enemy.name || '?'}: ${damage} danni (HP: ${enemy.hp.current}/${enemy.hp.max})` });
 
         // ── Durabilità arma — degrada per ogni colpo ─────────────────────────
         if (weapEquipped && !weapBroken) {
@@ -732,6 +756,7 @@ function processBattleTags(tags, profile, inventory, skills, gameState, snap, ui
             console.log(`[PartBreak] ${bodyPart} di ${enemy.name} distrutto!${debuffDesc}`);
             gameState.pending_narrative_events = gameState.pending_narrative_events || [];
             gameState.pending_narrative_events.push(`[💥 PART BREAK] La parte "${bodyPart}" di ${enemy.name} è stata distrutta${debuffDesc}. DESCRIVI obbligatoriamente la mutilazione/frattura nel turno corrente.`);
+            combatLogs.push({ type: 'part_break', label: `💥 PART BREAK: ${bodyPart} di ${enemy.name}!` });
             tensionDelta += 40;          // rottura parte → grande accumulo tensione
             tensionBreachSource = 'part_break'; // → STAGGER al raggiungimento soglia
           }
@@ -1942,12 +1967,13 @@ app.post('/api/chat', (req, res) => {
     } catch { /* non-critical */ }
 
     // ── Battle Tags Engine — applica delta matematici come fonte di verità ────
+    const combatLogs = [];
     if (parsed.battle_tags.length > 0) {
       processBattleTags(parsed.battle_tags, profile, inventory, skills, gameState, {
         HP: snapHP, MP: snapMP, STM: snapSTM,
         money: snapMoney, exp: snapEXP,
         enemyHP: snapEnemyHP,
-      }, uiEvents);
+      }, uiEvents, combatLogs);
     }
     // Pulizia flag transitori post-AI (stagger/overdrive consumati questo turno)
     delete gameState.enemy_staggered_this_turn;
@@ -1992,6 +2018,16 @@ app.post('/api/chat', (req, res) => {
 
     if (prevCombatActive && !gameState.combat_active && prevEnemyName) {
       counters.enemies_defeated = (counters.enemies_defeated || 0) + 1;
+      // ── Bounty kill tracking ──────────────────────────────────────────────
+      profile.bounty_quests = profile.bounty_quests || [];
+      const _bqKill = profile.bounty_quests.find(q => q.type === 'kill' && q.target_id === prevEnemyName && !q.ready_to_claim && !q.completed);
+      if (_bqKill) {
+        _bqKill.progress = Math.min(_bqKill.quantity_required, (_bqKill.progress || 0) + 1);
+        if (_bqKill.progress >= _bqKill.quantity_required) {
+          _bqKill.ready_to_claim = true;
+          uiEvents.push(`BOUNTY_READY_${_bqKill.id}`);
+        }
+      }
       const eliteTiers = ['B','A','S','SS','SSS'];
       if (eliteTiers.some(t => (prevEnemyTier || '').includes(t))) {
         counters.elite_kills = (counters.elite_kills || 0) + 1;
@@ -2039,6 +2075,7 @@ app.post('/api/chat', (req, res) => {
         if (!profile.flags[_flagKey]) {
           profile.flags[_flagKey] = true;
           console.log(`[Flag] Boss flag impostata: ${_flagKey} = true`);
+          appendGlobalAnnouncement(username, `⚔️ ${username} ha sconfitto ${prevEnemyName}!`);
         }
       }
     }
@@ -2159,6 +2196,8 @@ app.post('/api/chat', (req, res) => {
     ];
     writeUD(username, 'game_state.json', gameState);
 
+    if (combatLogs.length > 0) sendEvent({ type: 'combat_log', logs: combatLogs });
+
     sendEvent({
       type: 'done',
       narrative,
@@ -2219,6 +2258,7 @@ app.post('/api/reset', (req, res) => {
         max_skills_in_combat: 0, near_death_survives: 0,
       },
       flags: {},
+      bounty_quests: [],
     });
     try { io.write('npcs.json', { npcs: [] }); } catch {}
     // Reset learned state on all non-default skills
@@ -2290,6 +2330,93 @@ app.get('/api/quests', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// GET /api/quests/catalog — catalogo bounty board di Crysta
+app.get('/api/quests/catalog', (req, res) => {
+  try {
+    const catalog = readData('quests_catalog.json');
+    const io      = userIO(req.username);
+    const profile = io.readSafe('player_profile.json');
+    const bounty  = profile.bounty_quests || [];
+    const quests  = (catalog.quests || []).map(q => {
+      const tracked = bounty.find(b => b.id === q.id);
+      return {
+        ...q,
+        status: tracked?.completed       ? 'completed'
+               : tracked?.ready_to_claim ? 'ready'
+               : tracked                 ? 'active'
+               : 'available',
+        progress: tracked?.progress || 0,
+      };
+    });
+    res.json({ quests });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/quests/accept — accetta una quest dalla bacheca di Crysta
+app.post('/api/quests/accept', (req, res) => {
+  const { quest_id } = req.body;
+  if (!quest_id) return res.status(400).json({ error: 'quest_id mancante' });
+  try {
+    const catalog = readData('quests_catalog.json');
+    const quest   = (catalog.quests || []).find(q => q.id === quest_id);
+    if (!quest) return res.status(404).json({ error: `Quest "${quest_id}" non trovata` });
+    const io      = userIO(req.username);
+    const profile = io.readSafe('player_profile.json');
+    profile.bounty_quests = profile.bounty_quests || [];
+    if (profile.bounty_quests.find(b => b.id === quest_id && !b.completed)) {
+      return res.status(400).json({ error: 'Quest già attiva' });
+    }
+    profile.bounty_quests.push({
+      id: quest.id, name: quest.name,
+      type: quest.target_type, target_id: quest.target_id,
+      quantity_required: quest.quantity_required, progress: 0,
+      rewards: quest.rewards, ready_to_claim: false, completed: false,
+    });
+    io.write('player_profile.json', profile);
+    console.log(`[Bounty] Accettata: ${quest_id}`);
+    res.json({ ok: true, quest: profile.bounty_quests[profile.bounty_quests.length - 1] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/quests/claim — ritira la ricompensa di una quest completata
+app.post('/api/quests/claim', (req, res) => {
+  const { quest_id } = req.body;
+  if (!quest_id) return res.status(400).json({ error: 'quest_id mancante' });
+  try {
+    const io        = userIO(req.username);
+    const profile   = io.readSafe('player_profile.json');
+    const inventory = io.read('inventory.json');
+    const gameState = io.read('game_state.json');
+    profile.bounty_quests = profile.bounty_quests || [];
+    const bq = profile.bounty_quests.find(q => q.id === quest_id && q.ready_to_claim && !q.completed);
+    if (!bq) return res.status(400).json({ error: 'Quest non pronta o già ritirata' });
+    const rewards = bq.rewards || {};
+    if (rewards.gold) profile.money = (profile.money || 0) + rewards.gold;
+    if (Array.isArray(rewards.items)) {
+      inventory.bag = inventory.bag || [];
+      for (const it of rewards.items) {
+        const existing = inventory.bag.find(b => b.id === it.id);
+        if (existing) existing.quantity = (existing.quantity || 1) + (it.quantity || 1);
+        else inventory.bag.push({ ...it, quantity: it.quantity || 1 });
+      }
+    }
+    bq.completed      = true;
+    bq.ready_to_claim = false;
+    gameState.pending_narrative_events = gameState.pending_narrative_events || [];
+    gameState.pending_narrative_events.push(
+      `[🏆 BOUNTY_CLAIMED: ${bq.name}] Il giocatore ha ritirato la ricompensa "${bq.name}": ` +
+      `${rewards.gold ? '+' + rewards.gold + ' R' : ''}` +
+      `${Array.isArray(rewards.items) && rewards.items.length ? ', ' + rewards.items.map(i => i.name).join(', ') : ''}. ` +
+      `NARRA brevemente il ritiro della taglia all'NPC di riferimento.`
+    );
+    io.write('player_profile.json', profile);
+    io.write('inventory.json', inventory);
+    io.write('game_state.json', gameState);
+    console.log(`[Bounty] Claim: ${quest_id} → ${rewards.gold || 0}R + ${(rewards.items || []).length} item/s`);
+    res.json({ ok: true, rewards, profile, inventory });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // POST /api/dungeon/enter — entra in un dungeon e imposta la stanza iniziale
@@ -3187,6 +3314,9 @@ app.post('/api/appraise', (req, res) => {
     io.write('inventory.json', inventory);
     io.write('game_state.json', gameState);
     console.log(`[Appraise] ${item.name} → special:${special || 'none'} (fee: ${APPRAISE_FEE}R)`);
+    if (['leggendario', 'epico'].includes((item.rarity || '').toLowerCase())) {
+      appendGlobalAnnouncement(req.username, `✨ ${req.username} ha valutato l'oggetto ${item.rarity} "${item.name}"!`);
+    }
     res.json({ ok: true, item, special, fee: APPRAISE_FEE, profile, inventory });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -3291,7 +3421,10 @@ app.get('/api/sync', (req, res) => {
     const gameState = io.read('game_state.json');
     // pending_narrative_events e pending_combat_state NON vengono azzerati:
     // rimarranno nel JSON finché il prossimo turno di chat non li consumerà.
-    res.json({ profile, inventory, gameState });
+    let announcements = [];
+    try { announcements = JSON.parse(fs.readFileSync(GLOBAL_ANNOUNCE_FILE, 'utf-8')); } catch {}
+    if (!Array.isArray(announcements)) announcements = [];
+    res.json({ profile, inventory, gameState, announcements: announcements.slice(-5) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

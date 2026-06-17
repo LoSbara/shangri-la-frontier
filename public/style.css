@@ -2743,3 +2743,129 @@ body.ui-locked .modal-close-btn {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* ── Announce Ticker (Session 24 — Bacheca di Crysta) ─────────────────────── */
+.announce-ticker {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(90deg, #1a0a00, #1a1200, #1a0a00);
+  border-bottom: 1px solid #92400e;
+  padding: 5px 16px;
+  font-size: 11px;
+  font-family: monospace;
+  color: #fbbf24;
+  white-space: nowrap;
+  overflow: hidden;
+  z-index: 99990;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: slideDown 0.3s ease;
+}
+.announce-ticker.hidden { display: none; }
+.announce-item { flex-shrink: 0; }
+.announce-sep  { color: #92400e; font-size: 9px; flex-shrink: 0; }
+@keyframes slideDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+
+/* ── Combat Ticker Panel (Session 24 — Split UI Feed) ─────────────────────── */
+.combat-ticker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+.combat-ticker-entry {
+  font-size: 10px;
+  font-family: monospace;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border-left: 2px solid transparent;
+  line-height: 1.4;
+}
+.ct-hit   { color: #86efac; border-left-color: #22c55e; background: rgba(34,197,94,0.06); }
+.ct-recv  { color: #fca5a5; border-left-color: #ef4444; background: rgba(239,68,68,0.06); }
+.ct-over  { color: #fde68a; border-left-color: #eab308; background: rgba(234,179,8,0.10); }
+.ct-break { color: #c4b5fd; border-left-color: #a78bfa; background: rgba(167,139,250,0.08); }
+.ct-misc  { color: var(--text-dim); border-left-color: #374151; }
+
+/* ── Bounty Board Modal (Session 24 — Bounty Board) ────────────────────────── */
+.modal-box-bounty {
+  width: 480px;
+  max-width: 96vw;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.bounty-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+}
+.bounty-card {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.bounty-card.bounty-available { border-color: #374151; }
+.bounty-card.bounty-active    { border-color: #2563eb; }
+.bounty-card.bounty-ready     { border-color: #d97706; box-shadow: 0 0 8px rgba(217,119,6,0.2); }
+.bounty-card.bounty-completed { opacity: 0.45; }
+.bounty-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.bounty-name   { font-size: 12px; font-weight: 700; color: var(--text-main); }
+.bounty-status { font-size: 10px; font-family: monospace; color: var(--text-dim); }
+.bounty-card.bounty-ready .bounty-status  { color: #fbbf24; }
+.bounty-card.bounty-active .bounty-status { color: #60a5fa; }
+.bounty-desc   { font-size: 11px; color: var(--text-dim); line-height: 1.4; }
+.bounty-reward { font-size: 10px; font-family: monospace; color: #86efac; }
+.bounty-progress-wrap {
+  height: 4px;
+  background: #1f2937;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.bounty-progress-bar {
+  height: 100%;
+  background: #2563eb;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+.bounty-progress-text {
+  font-size: 10px;
+  font-family: monospace;
+  color: #60a5fa;
+  text-align: right;
+}
+.bounty-action-btn {
+  align-self: flex-end;
+  padding: 3px 12px;
+  font-size: 11px;
+  font-family: monospace;
+  border-radius: 4px;
+  border: 1px solid #374151;
+  background: #1f2937;
+  color: var(--text-main);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.bounty-action-btn:hover { background: #374151; border-color: #6b7280; }
+.bounty-claim-btn {
+  border-color: #d97706;
+  background: rgba(217,119,6,0.12);
+  color: #fbbf24;
+}
+.bounty-claim-btn:hover { background: rgba(217,119,6,0.25); }

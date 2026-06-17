@@ -190,6 +190,7 @@ async function syncHUD(quiet = false) {
     updatePlayerHUD(data.profile, data.inventory, data.gameState);
     renderTacticalTension(data.gameState?.tactical_tension || 0, data.gameState?.combat_active);
     renderParty(data.gameState?.party || []);
+    if (data.announcements?.length) renderAnnouncements(data.announcements);
     if (!quiet) console.log('[syncHUD] HUD riallineato allo stato server (turn_id:', data.gameState?.current_turn_id, ')');
   } catch (e) {
     if (!quiet) console.error('[syncHUD] Fallito:', e.message);
@@ -295,6 +296,8 @@ async function sendToGM(message) {
           if (data.state) { currentState = data.state; updateUI(data.state); }
           keepBusy = true;
           showGMRespondPanel();
+        } else if (data.type === 'combat_log') {
+          renderCombatTicker(data.logs || []);
         } else if (data.type === 'done') {
           clearTimeout(tokenWatchdogId); // stream concluso — disattiva il watchdog
           if (!narrativeText && data.narrative) {
@@ -402,6 +405,10 @@ function dispatchUIEvents(events) {
       showPartBreakToast(`FASE ${phase}!`, '#dc2626', '⚡');
       document.body.classList.add('ui-shake');
       setTimeout(() => document.body.classList.remove('ui-shake'), 700);
+    } else if (ev.startsWith('BOUNTY_READY_')) {
+      const questId = ev.slice('BOUNTY_READY_'.length);
+      showPartBreakToast(`Taglia completata!`, '#f59e0b', '📋');
+      console.log('[Bounty] Quest pronta:', questId);
     }
   });
 }
@@ -2161,6 +2168,105 @@ function showQuestCompleted(quest) {
 }
 
 questsBtn.addEventListener('click', openQuestsModal);
+
+// ────────────────────────────────────────────────────────────────────────────
+// COMBAT TICKER — Modulo 3
+// ────────────────────────────────────────────────────────────────────────────
+
+function renderCombatTicker(logs) {
+  const panel = document.getElementById('combat-ticker-panel');
+  const list  = document.getElementById('combat-ticker-list');
+  if (!panel || !list || !logs.length) return;
+  panel.classList.remove('hidden');
+  const typeClass = { damage_dealt: 'ct-hit', damage_received: 'ct-recv', overdrive: 'ct-over', part_break: 'ct-break' };
+  logs.forEach(log => {
+    const div = document.createElement('div');
+    div.className = 'combat-ticker-entry ' + (typeClass[log.type] || 'ct-misc');
+    div.textContent = log.label || '';
+    list.appendChild(div);
+  });
+  list.scrollTop = list.scrollHeight;
+  // Nasconde il ticker se il combattimento finisce
+  const inCombat = currentState?.gameState?.combat_active;
+  if (!inCombat) setTimeout(() => panel.classList.add('hidden'), 3000);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ANNOUNCE TICKER — Modulo 1
+// ────────────────────────────────────────────────────────────────────────────
+
+let _announceTimer = null;
+
+function renderAnnouncements(arr) {
+  const ticker = document.getElementById('announce-ticker');
+  if (!ticker || !arr.length) return;
+  ticker.classList.remove('hidden');
+  ticker.innerHTML = arr.slice(-5).map(a => `<span class="announce-item">${a.text}</span>`).join('<span class="announce-sep">◈</span>');
+  clearTimeout(_announceTimer);
+  _announceTimer = setTimeout(() => ticker.classList.add('hidden'), 12000);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// BOUNTY BOARD — Modulo 2
+// ────────────────────────────────────────────────────────────────────────────
+
+async function openBountyBoard() {
+  const list = document.getElementById('bounty-list');
+  list.innerHTML = '<div style="color:var(--text-dim);font-size:11px;padding:16px">Caricamento…</div>';
+  document.getElementById('modal-bounty').classList.remove('hidden');
+  try {
+    const data = await apiFetch('/quests/catalog');
+    const quests = data.quests || [];
+    if (!quests.length) { list.innerHTML = '<div style="color:var(--text-dim);font-size:11px;padding:16px">Nessuna taglia disponibile.</div>'; return; }
+    const STATUS_LABEL = { available: 'Disponibile', active: 'In corso', ready: 'Pronta!', completed: 'Completata' };
+    list.innerHTML = quests.map(q => {
+      const bar = q.status === 'active' || q.status === 'ready'
+        ? `<div class="bounty-progress-wrap"><div class="bounty-progress-bar" style="width:${Math.round((q.progress / q.quantity_required) * 100)}%"></div></div><div class="bounty-progress-text">${q.progress}/${q.quantity_required}</div>`
+        : '';
+      const rewardText = [
+        q.rewards?.gold ? `${q.rewards.gold} R` : null,
+        ...(q.rewards?.items || []).map(i => i.name),
+      ].filter(Boolean).join(', ');
+      const btn = q.status === 'available'
+        ? `<button class="bounty-action-btn" onclick="bountyAccept('${q.id}')">Accetta</button>`
+        : q.status === 'ready'
+        ? `<button class="bounty-action-btn bounty-claim-btn" onclick="bountyClaim('${q.id}')">Ritira ricompensa</button>`
+        : '';
+      return `<div class="bounty-card bounty-${q.status}">
+        <div class="bounty-card-header">
+          <span class="bounty-name">${q.name}</span>
+          <span class="bounty-status">${STATUS_LABEL[q.status] || q.status}</span>
+        </div>
+        <div class="bounty-desc">${q.description}</div>
+        ${bar}
+        <div class="bounty-reward">Premio: ${rewardText || '—'}</div>
+        ${btn}
+      </div>`;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = `<div style="color:var(--text-dim);font-size:11px;padding:16px">Errore: ${e.message}</div>`;
+  }
+}
+
+async function bountyAccept(questId) {
+  try {
+    await apiFetch('/quests/accept', { method: 'POST', body: JSON.stringify({ quest_id: questId }) });
+    openBountyBoard();
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+}
+
+async function bountyClaim(questId) {
+  try {
+    const data = await apiFetch('/quests/claim', { method: 'POST', body: JSON.stringify({ quest_id: questId }) });
+    currentState = { ...(currentState || {}), profile: data.profile, inventory: data.inventory };
+    updateUI(currentState);
+    updatePlayerHUD(data.profile, data.inventory, currentState.gameState);
+    openBountyBoard();
+    addSystemMsg(`🏆 Taglia completata! +${data.rewards?.gold || 0} R`);
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+}
+
+document.getElementById('bounty-btn').addEventListener('click', openBountyBoard);
 
 // ────────────────────────────────────────────────────────────────────────────
 // DUNGEON MAP

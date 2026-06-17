@@ -1,0 +1,68 @@
+{
+  "_note": "Bounty Board — catalogo statico delle quest disponibili alla lavagna di Crysta.",
+  "quests": [
+    {
+      "id": "caccia_goblin",
+      "name": "Caccia ai Goblin",
+      "description": "La Gilda Cacciatori offre una taglia per ripulire i sentieri dagli esploratori goblin.",
+      "target_type": "kill",
+      "target_id": "Goblin Esploratore",
+      "quantity_required": 3,
+      "rewards": { "gold": 150, "items": [] }
+    },
+    {
+      "id": "caccia_goblin_guerriero",
+      "name": "Guerrieri Goblin alla sbarra",
+      "description": "I guerrieri goblin minacciano i commercianti. Abbattine due.",
+      "target_type": "kill",
+      "target_id": "Goblin Guerriero",
+      "quantity_required": 2,
+      "rewards": { "gold": 220, "items": [] }
+    },
+    {
+      "id": "caccia_lupo",
+      "name": "Il Lupo della Foresta",
+      "description": "Lupi selvatici attaccano le fattorie. La Guardia paga bene per ogni branco ridotto.",
+      "target_type": "kill",
+      "target_id": "Lupo Selvatico",
+      "quantity_required": 2,
+      "rewards": { "gold": 180, "items": [] }
+    },
+    {
+      "id": "caccia_orso",
+      "name": "Il Signore delle Caverne",
+      "description": "Un orso gigante ha preso dimora nelle grotte di Crysta. Abbattilo.",
+      "target_type": "kill",
+      "target_id": "Orso delle Caverne",
+      "quantity_required": 1,
+      "rewards": { "gold": 350, "items": [{ "id": "frammento_ferro", "name": "Frammento di Ferro", "type": "material", "slot": null, "stat_bonus": {}, "rarity": "comune", "price": 20, "quantity": 3 }] }
+    },
+    {
+      "id": "raccolta_nucleo_melma",
+      "name": "Alchimia Basilare",
+      "description": "Lo studioso Rael cerca nuclei di melma per i suoi esperimenti. Raccogline 3.",
+      "target_type": "loot",
+      "target_id": "nucleo_melma",
+      "quantity_required": 3,
+      "rewards": { "gold": 90, "items": [] }
+    },
+    {
+      "id": "raccolta_pelo_lupo",
+      "name": "Pellicce d'Inverno",
+      "description": "I mercanti della città pagano bene per le pellicce di lupo. Recupera 4 campioni.",
+      "target_type": "loot",
+      "target_id": "pelo_lupo",
+      "quantity_required": 4,
+      "rewards": { "gold": 120, "items": [] }
+    },
+    {
+      "id": "raccolta_zanna_lupo",
+      "name": "Materiali per il Fabbro",
+      "description": "Goro il Fabbro ha bisogno di zanne di lupo per forgiare una nuova lama.",
+      "target_type": "loot",
+      "target_id": "zanna_lupo",
+      "quantity_required": 2,
+      "rewards": { "gold": 80, "items": [{ "id": "pietra_affilatura_01", "name": "Pietra di Affilatura", "type": "material", "slot": null, "stat_bonus": {}, "rarity": "comune", "price": 30, "quantity": 1 }] }
+    }
+  ]
+}
