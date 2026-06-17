@@ -7,8 +7,12 @@ let waitingForGM    = false;
 let currentState    = null;
 let worldMapZones   = [];
 let bestiaryFilter  = 'all';
+let diaryCache      = [];
+let diaryZoneFilter = '';
 let shopTab         = 'buy';
 let prevCombatState = false;
+let pinnedQuestId   = null;
+let questsCache     = [];
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
 const chatMessages    = document.getElementById('chat-messages');
@@ -20,7 +24,9 @@ const statPointsBox   = document.getElementById('stat-points-box');
 const openSkillsModal = document.getElementById('open-skills-modal');
 const mapBtn          = document.getElementById('map-btn');
 const bestiaryBtn     = document.getElementById('bestiary-btn');
+const diaryBtn        = document.getElementById('diary-btn');
 const shopBtn         = document.getElementById('shop-btn');
+const questsBtn       = document.getElementById('quests-btn');
 
 marked.setOptions({ breaks: true });
 
@@ -118,6 +124,7 @@ async function init() {
     currentState  = state;
     worldMapZones = mapData.zones || [];
     updateUI(state);
+    fetchAndCacheQuests();
 
     if (!state.profile.name) {
       clearSystemMsgs();
@@ -154,47 +161,110 @@ async function sendToGM(message) {
   if (busy) return;
   busy = true;
   disableInput();
-  const typingEl = addTyping();
+
+  // Crea subito la bolla GM per lo streaming progressivo
+  const div = document.createElement('div');
+  div.className = 'message msg-gm';
+  div.innerHTML = '<div class="msg-label">GM — SHANGRI-LA FRONTIER</div><div class="msg-stream-body"></div>';
+  chatMessages.appendChild(div);
+  scrollBottom();
+  const bodyDiv = div.querySelector('.msg-stream-body');
+  bodyDiv.innerHTML = '<div class="typing-dots"><span></span><span></span><span></span></div>';
+
   let keepBusy = false;
+  let narrativeText = '';
+  let soundPlayed = false;
+
   try {
-    const data = await apiFetch('/chat', {
+    const response = await fetch(API + '/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message }),
     });
-    typingEl.remove();
 
-    if (data.waiting_for_gm) {
-      currentState = data.state;
-      updateUI(data.state);
-      keepBusy = true;
-      showGMRespondPanel();
-      return;
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(err.error || 'Errore server');
     }
 
-    addGMMsg(data.narrative);
-    currentState = data.state;
-    updateUI(data.state);
-    if (data.ui_events?.includes('level_up')) showLevelUp(data.state.profile.level);
-    if (data.ui_events?.includes('skill_unlocked') && data.new_skills?.length) {
-      showSkillUnlocked(data.new_skills[data.new_skills.length - 1].name);
-    }
-    if (data.new_titles?.length) {
-      data.new_titles.forEach((t, i) => setTimeout(() => showTitleUnlocked(t), i * 1200));
-    }
-    if (data.ui_events?.includes('subclass_available')) {
-      setTimeout(() => openSubclassModal(), 1000);
-    }
-    if (data.ui_events?.includes('advanced_class_available')) {
-      setTimeout(() => openAdvancedClassModal(), 1000);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let sseBuffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      sseBuffer += decoder.decode(value, { stream: true });
+
+      const parts = sseBuffer.split('\n\n');
+      sseBuffer = parts.pop();
+
+      for (const part of parts) {
+        if (!part.startsWith('data: ')) continue;
+        let data;
+        try { data = JSON.parse(part.slice(6)); } catch { continue; }
+
+        if (data.type === 'token') {
+          if (!soundPlayed) { playSound('message'); soundPlayed = true; }
+          narrativeText += data.text;
+          bodyDiv.innerHTML = marked.parse(narrativeText);
+          scrollBottom();
+        } else if (data.type === 'gm_mode') {
+          div.remove();
+          if (data.state) { currentState = data.state; updateUI(data.state); }
+          keepBusy = true;
+          showGMRespondPanel();
+        } else if (data.type === 'done') {
+          if (!narrativeText && data.narrative) {
+            if (!soundPlayed) { playSound('message'); soundPlayed = true; }
+            narrativeText = data.narrative;
+            bodyDiv.innerHTML = marked.parse(narrativeText);
+          }
+          currentState = data.state;
+          updateUI(data.state);
+          updatePlayerHUD(data.state.profile, data.state.inventory, data.state.gameState);
+          dispatchUIEvents(data.ui_events || []);
+          if (data.ui_events?.includes('level_up')) showLevelUp(data.state.profile.level);
+          if (data.ui_events?.includes('skill_unlocked') && data.new_skills?.length) {
+            showSkillUnlocked(data.new_skills[data.new_skills.length - 1].name);
+          }
+          if (data.new_titles?.length) {
+            data.new_titles.forEach((t, i) => setTimeout(() => showTitleUnlocked(t), i * 1200));
+          }
+          if (data.completed_quests?.length) {
+            data.completed_quests.forEach((q, i) => setTimeout(() => showQuestCompleted(q), i * 1400));
+            fetchAndCacheQuests();
+          }
+          if (data.ui_events?.includes('subclass_available')) setTimeout(() => openSubclassModal(), 1000);
+          if (data.ui_events?.includes('advanced_class_available')) setTimeout(() => openAdvancedClassModal(), 1000);
+          scrollBottom();
+        } else if (data.type === 'error') {
+          throw new Error(data.error);
+        }
+      }
     }
   } catch (e) {
-    typingEl.remove();
+    if (!narrativeText) div.remove();
     addSystemMsg(`⚠ ${e.message}`);
   } finally {
     busy = false;
     if (!keepBusy) enableInput();
   }
+}
+
+function dispatchUIEvents(events) {
+  events.forEach(ev => {
+    if (ev === 'SCREEN_SHAKE') {
+      document.body.classList.add('ui-shake');
+      setTimeout(() => document.body.classList.remove('ui-shake'), 700);
+    } else if (ev === 'RED_FLASH' || ev === 'HEAL_EFFECT') {
+      const overlay = document.createElement('div');
+      overlay.className = ev === 'RED_FLASH' ? 'ui-red-flash' : 'ui-heal-flash';
+      overlay.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:9999;';
+      document.body.appendChild(overlay);
+      setTimeout(() => overlay.remove(), 600);
+    }
+  });
 }
 
 async function handleSend() {
@@ -276,13 +346,12 @@ function updateUI({ profile, inventory, skills, gameState: gs }) {
 
   const quests = gs.quests_active || [];
   document.getElementById('quest-section').style.display = quests.length ? '' : 'none';
-  document.getElementById('quest-list').innerHTML =
-    quests.map(q => `<div class="quest-item">${q}</div>`).join('');
+  updatePinnedQuestHUD(profile);
 
   renderEnemy(inCombat ? gs.current_enemy : null);
   renderCombatLog(gs.combat_log_entries || [], inCombat);
   renderEquipment(inventory.equipped || {});
-  renderSkills(gs.skill_loadout || [], profile.skill_slots || 4);
+  renderSkills(gs.skill_loadout || [], profile.skill_slots || 4, profile.skill_cooldowns || {});
   renderBag(inventory.bag || []);
   renderTitles(profile.titles || []);
   renderStatusEffects(profile.status_effects || []);
@@ -375,13 +444,33 @@ function renderEquipment(equipped) {
     }).join('');
 }
 
-function renderSkills(loadout, maxSlots) {
+function renderSkills(loadout, maxSlots, cooldowns = {}) {
   const cards = loadout.map(sk => {
-    const cost = Object.entries(sk.cost||{}).map(([k,v])=>`${k}:${v}`).join('  ');
-    return `<div class="skill-card"><div class="skill-card-name">${sk.name}</div><div class="skill-card-cost">${cost}</div>${sk.effect?`<div class="skill-card-effect">${sk.effect}</div>`:''}</div>`;
+    const cost      = Object.entries(sk.cost||{}).map(([k,v])=>`${k}:${v}`).join('  ');
+    const cd        = cooldowns[sk.id] || 0;
+    const onCd      = cd > 0;
+    const cdOverlay = onCd
+      ? `<div class="skill-cd-overlay">${cd}T</div>`
+      : '';
+    return `<div class="skill-card${onCd ? ' skill-on-cd' : ''}">
+      ${cdOverlay}
+      <div class="skill-card-name">${sk.name}</div>
+      <div class="skill-card-cost">${cost}</div>
+      ${sk.effect ? `<div class="skill-card-effect">${sk.effect}</div>` : ''}
+    </div>`;
   });
   for (let i = 0; i < Math.max(0, maxSlots - loadout.length); i++) cards.push(`<div class="skill-slot-empty">slot vuoto</div>`);
   document.getElementById('skill-slots').innerHTML = cards.join('');
+}
+
+// Aggiorna HUD vitali, borsa e skill con cooldown — chiamata separata nel done handler
+function updatePlayerHUD(profile, inventory, gameState) {
+  if (!profile?.stats) return;
+  setBar('hp',  profile.stats.HP.current,  profile.stats.HP.max);
+  setBar('mp',  profile.stats.MP.current,  profile.stats.MP.max);
+  setBar('stm', profile.stats.STM.current, profile.stats.STM.max);
+  renderBag(inventory?.bag || []);
+  renderSkills(gameState?.skill_loadout || [], profile.skill_slots || 4, profile.skill_cooldowns || {});
 }
 
 function renderBag(bag) {
@@ -707,9 +796,19 @@ function buildMapSVG(zones, currentId) {
 }
 
 function openMapModal() {
-  const currentZone = getCurrentZone();
-  document.getElementById('map-svg-container').innerHTML =
-    buildMapSVG(worldMapZones, currentZone?.id || null);
+  const gs = currentState?.gameState;
+  if (gs?.zone_type === 'dungeon' && gs?.current_dungeon_id) {
+    renderDungeonMap(gs);
+  } else {
+    const currentZone = getCurrentZone();
+    document.getElementById('map-modal-title').textContent = 'MAPPA DEL MONDO';
+    document.getElementById('map-legend-bar').innerHTML =
+      '<span class="legend-dot safe"></span>Città <span class="legend-dot combat"></span>Zona combat <span class="legend-dot dungeon"></span>Dungeon <span class="legend-dot boss"></span>Boss';
+    document.getElementById('map-edit-btn').style.display = '';
+    document.getElementById('map-modal-sub').textContent = 'Clicca su una zona per spostarti';
+    document.getElementById('map-svg-container').innerHTML =
+      buildMapSVG(worldMapZones, currentZone?.id || null);
+  }
   document.getElementById('modal-map').classList.remove('hidden');
 }
 
@@ -1597,6 +1696,373 @@ async function confirmAdvancedClass(id) {
       data.new_skills.forEach((sk, i) => setTimeout(() => showSkillUnlocked(sk.name), i * 600));
     }
   } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// QUEST TRACKER
+// ────────────────────────────────────────────────────────────────────────────
+
+async function fetchAndCacheQuests() {
+  try {
+    const data = await apiFetch('/quests');
+    questsCache = data.quests || [];
+  } catch (_) {}
+}
+
+function updatePinnedQuestHUD(profile) {
+  const box = document.getElementById('quest-pin-display');
+  if (!box) return;
+
+  const pinned = questsCache.find(q => q.id === pinnedQuestId);
+  const activeIds = currentState?.gameState?.quests_active || [];
+
+  if (!pinned || !activeIds.includes(pinnedQuestId)) {
+    // try to auto-pin first active quest if nothing pinned
+    if (activeIds.length && questsCache.length) {
+      const first = questsCache.find(q => activeIds.includes(q.id));
+      if (first) {
+        pinnedQuestId = first.id;
+        updatePinnedQuestHUD(profile);
+        return;
+      }
+    }
+    box.innerHTML = '<div class="quest-pin-none">Nessuna quest in evidenza</div>';
+    return;
+  }
+
+  const counters = profile?.action_counters || {};
+  const cur = counters[pinned.target_counter] || 0;
+  const max = pinned.target_value || 1;
+  const pct = Math.min(100, Math.round((cur / max) * 100));
+
+  box.innerHTML = `
+    <div class="quest-pin-name">${pinned.name}</div>
+    <div class="quest-pin-progress">
+      <div class="quest-bar-track"><div class="quest-bar-fill" style="width:${pct}%"></div></div>
+      <span class="quest-progress-text">${cur}/${max}</span>
+    </div>`;
+}
+
+async function openQuestsModal() {
+  document.getElementById('modal-quests').classList.remove('hidden');
+  await fetchAndCacheQuests();
+  renderQuestsModal();
+}
+
+function renderQuestsModal() {
+  const container = document.getElementById('quests-modal-content');
+  if (!container) return;
+
+  const gs = currentState?.gameState || {};
+  const profile = currentState?.profile || {};
+  const activeIds   = gs.quests_active     || [];
+  const completedIds= gs.quests_completed  || [];
+  const counters    = profile.action_counters || {};
+
+  if (!questsCache.length) {
+    container.innerHTML = '<div style="font-size:11px;color:var(--text-dim);text-align:center;padding:20px">Nessuna quest disponibile.</div>';
+    return;
+  }
+
+  const active    = questsCache.filter(q => activeIds.includes(q.id));
+  const completed = questsCache.filter(q => completedIds.includes(q.id));
+  const available = questsCache.filter(q => !activeIds.includes(q.id) && !completedIds.includes(q.id));
+
+  let html = '';
+
+  if (active.length) {
+    html += '<div class="quest-modal-section-title">ATTIVE</div>';
+    html += active.map(q => questCardHTML(q, true, false, counters)).join('');
+  }
+
+  if (available.length) {
+    html += '<div class="quest-modal-section-title">DISPONIBILI</div>';
+    html += available.map(q => questCardHTML(q, false, false, counters)).join('');
+  }
+
+  if (completed.length) {
+    html += '<div class="quest-modal-section-title">COMPLETATE</div>';
+    html += completed.map(q => questCardHTML(q, false, true, counters)).join('');
+  }
+
+  container.innerHTML = html;
+}
+
+function questCardHTML(q, isActive, isCompleted, counters = {}) {
+  const cur = counters[q.target_counter] || 0;
+  const max = q.target_value || 1;
+  const pct = Math.min(100, Math.round((cur / max) * 100));
+  const isPinned = pinnedQuestId === q.id;
+
+  const rewardParts = [];
+  if (q.rewards?.exp)         rewardParts.push(`EXP +${q.rewards.exp}`);
+  if (q.rewards?.money)       rewardParts.push(`${q.rewards.money} R`);
+  if (q.rewards?.stat_points) rewardParts.push(`+${q.rewards.stat_points} stat`);
+  if (q.rewards?.items?.length) rewardParts.push(`${q.rewards.items.length} oggetto`);
+
+  const cardClass = `quest-card${isPinned ? ' quest-pinned' : ''}${isCompleted ? ' quest-completed' : ''}`;
+
+  let actions = '';
+  if (isActive) {
+    actions = `<button class="btn-tiny ${isPinned ? 'quest-pin-active' : ''}" onclick="togglePinQuest('${q.id}')">📌</button>`;
+  } else if (!isCompleted) {
+    actions = `<button class="quest-start-btn" onclick="startQuest('${q.id}')">Inizia</button>`;
+  }
+
+  return `<div class="${cardClass}">
+    <div class="quest-card-header">
+      <span class="quest-card-name">${q.name}</span>
+      ${actions}
+    </div>
+    <div class="quest-card-desc">${q.description}</div>
+    ${isActive ? `<div class="quest-progress-row">
+      <div class="quest-bar-track" style="flex:1"><div class="quest-bar-fill" style="width:${pct}%"></div></div>
+      <span class="quest-progress-text">${cur}/${max}</span>
+    </div>` : ''}
+    ${rewardParts.length ? `<div class="quest-rewards">Ricompensa: <span class="quest-rewards-val">${rewardParts.join(' · ')}</span></div>` : ''}
+  </div>`;
+}
+
+function togglePinQuest(id) {
+  pinnedQuestId = (pinnedQuestId === id) ? null : id;
+  renderQuestsModal();
+  if (currentState?.profile) updatePinnedQuestHUD(currentState.profile);
+}
+
+async function startQuest(id) {
+  try {
+    await apiFetch('/quest/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quest_id: id }),
+    });
+    await fetchAndCacheQuests();
+    if (!pinnedQuestId) { pinnedQuestId = id; }
+    renderQuestsModal();
+    if (currentState?.profile) updatePinnedQuestHUD(currentState.profile);
+  } catch (e) { addSystemMsg(`⚠ ${e.message}`); }
+}
+
+function showQuestCompleted(quest) {
+  const toast   = document.getElementById('quest-completed-toast');
+  const nameEl  = document.getElementById('quest-toast-name');
+  const rewEl   = document.getElementById('quest-toast-reward');
+  if (!toast) return;
+
+  nameEl.textContent = quest.name || quest;
+  const parts = [];
+  if (quest.rewards?.exp)   parts.push(`+${quest.rewards.exp} EXP`);
+  if (quest.rewards?.money) parts.push(`+${quest.rewards.money} R`);
+  rewEl.textContent = parts.join(' · ');
+
+  toast.classList.remove('hidden');
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => toast.classList.add('hidden'), 4000);
+
+  if (pinnedQuestId === quest.id) pinnedQuestId = null;
+}
+
+questsBtn.addEventListener('click', openQuestsModal);
+
+// ────────────────────────────────────────────────────────────────────────────
+// DUNGEON MAP
+// ────────────────────────────────────────────────────────────────────────────
+
+const DUNGEON_ICONS = { combat:'⚔', trap:'🪤', puzzle:'◈', boss:'💀', reward:'🎁', empty:'○' };
+
+async function renderDungeonMap(gs) {
+  const container = document.getElementById('map-svg-container');
+  document.getElementById('map-modal-title').textContent = 'MAPPA DUNGEON';
+  document.getElementById('map-edit-btn').style.display = 'none';
+  document.getElementById('map-legend-bar').innerHTML =
+    '<span style="color:var(--text-dim);font-size:10px">⚔ Combat &nbsp; 🪤 Trappola &nbsp; ◈ Puzzle &nbsp; 💀 Boss &nbsp; 🎁 Tesoro &nbsp; ○ Vuota</span>';
+  document.getElementById('map-modal-sub').textContent = 'Mappa del dungeon corrente';
+
+  container.innerHTML = '<div style="color:var(--text-dim);font-size:11px;padding:20px">Caricamento…</div>';
+
+  try {
+    const data = await apiFetch('/dungeon/map');
+    if (!data.in_dungeon) {
+      container.innerHTML = '<div style="color:var(--text-dim);font-size:11px;padding:20px">Nessun dungeon attivo.</div>';
+      return;
+    }
+    const dungeon  = { name: data.dungeon_name, rooms: data.rooms || [] };
+    const visitedIds = (data.rooms || []).filter(r => r.visited).map(r => r.id);
+    container.innerHTML = buildDungeonSVG(dungeon, data.current_room_id, visitedIds);
+  } catch (e) {
+    container.innerHTML = `<div style="color:var(--text-dim);font-size:11px;padding:20px">⚠ ${e.message}</div>`;
+  }
+}
+
+function buildDungeonSVG(dungeon, currentRoomId, visitedIds) {
+  if (!dungeon || !dungeon.rooms?.length) return '<div style="color:var(--text-dim);padding:20px">Nessun dungeon attivo.</div>';
+
+  const rooms = dungeon.rooms;
+  const W = 500, H = 420;
+  const NODE_W = 90, NODE_H = 36, RX = 6;
+  const HGAP = 24, VGAP = 48;
+
+  // BFS layout
+  const visitedBFS = new Set();
+  const levels = [];
+  const queue  = [{ id: rooms[0].id, depth: 0 }];
+  visitedBFS.add(rooms[0].id);
+  while (queue.length) {
+    const { id, depth } = queue.shift();
+    if (!levels[depth]) levels[depth] = [];
+    levels[depth].push(id);
+    const room = rooms.find(r => r.id === id);
+    for (const nid of (room?.connections || [])) {
+      if (!visitedBFS.has(nid)) {
+        visitedBFS.add(nid);
+        queue.push({ id: nid, depth: depth + 1 });
+      }
+    }
+  }
+
+  // Assign positions
+  const pos = {};
+  const totalH = levels.length * (NODE_H + VGAP) - VGAP;
+  const startY = (H - totalH) / 2;
+  for (let d = 0; d < levels.length; d++) {
+    const row  = levels[d];
+    const totalW = row.length * (NODE_W + HGAP) - HGAP;
+    const startX = (W - totalW) / 2;
+    for (let i = 0; i < row.length; i++) {
+      pos[row[i]] = {
+        x: startX + i * (NODE_W + HGAP),
+        y: startY + d * (NODE_H + VGAP),
+      };
+    }
+  }
+
+  // Draw edges
+  const drawnEdges = new Set();
+  let edges = '';
+  for (const room of rooms) {
+    const p = pos[room.id];
+    if (!p) continue;
+    for (const nid of (room.connections || [])) {
+      const edgeKey = [room.id, nid].sort().join('|');
+      if (drawnEdges.has(edgeKey)) continue;
+      drawnEdges.add(edgeKey);
+      const np = pos[nid];
+      if (!np) continue;
+      const bothVisited = visitedIds.includes(room.id) && visitedIds.includes(nid);
+      edges += `<line x1="${p.x + NODE_W/2}" y1="${p.y + NODE_H/2}" x2="${np.x + NODE_W/2}" y2="${np.y + NODE_H/2}" stroke="${bothVisited ? '#2a2a4a' : '#151530'}" stroke-width="2"/>`;
+    }
+  }
+
+  // Draw nodes
+  let nodes = '';
+  for (const room of rooms) {
+    const p = pos[room.id];
+    if (!p) continue;
+
+    const isCurrent = room.id === currentRoomId;
+    const isVisited = visitedIds.includes(room.id);
+    const isKnown   = isVisited || isCurrent ||
+      (room.connections || []).some(nid => visitedIds.includes(nid) || nid === currentRoomId);
+
+    let fill   = '#0a0a18';
+    let stroke = '#1a1a35';
+    let textColor = '#2a2a55';
+
+    if (isCurrent) { fill = '#0f0f2f'; stroke = '#5c5fe8'; }
+    else if (isVisited) { fill = '#0d0d22'; stroke = '#2a2a55'; }
+    else if (isKnown)   { fill = '#090912'; stroke = '#18183a'; textColor = '#3a3a6a'; }
+
+    const icon  = DUNGEON_ICONS[room.type] || '○';
+    const label = isKnown ? (room.name.length > 12 ? room.name.slice(0, 12) + '…' : room.name) : '?';
+
+    nodes += `<g>`;
+    if (isCurrent) {
+      nodes += `<rect x="${p.x - 2}" y="${p.y - 2}" width="${NODE_W + 4}" height="${NODE_H + 4}" rx="${RX + 2}" fill="none" stroke="#5c5fe8" stroke-width="1.5" opacity="0.5"><animate attributeName="opacity" values="0.5;1;0.5" dur="2s" repeatCount="indefinite"/></rect>`;
+    }
+    nodes += `<rect x="${p.x}" y="${p.y}" width="${NODE_W}" height="${NODE_H}" rx="${RX}" fill="${fill}" stroke="${stroke}" stroke-width="${isCurrent ? 2 : 1}"/>`;
+    if (isKnown) {
+      nodes += `<text x="${p.x + 10}" y="${p.y + 15}" font-size="12" fill="${isCurrent ? '#a0a0ff' : (isVisited ? '#5a5a9a' : '#3a3a7a')}">${icon}</text>`;
+      nodes += `<text x="${p.x + 26}" y="${p.y + 15}" font-size="9" fill="${isCurrent ? '#c0c0ff' : (isVisited ? '#8888bb' : textColor)}" dominant-baseline="middle">${label}</text>`;
+    } else {
+      nodes += `<text x="${p.x + NODE_W/2}" y="${p.y + NODE_H/2}" font-size="13" fill="#1e1e40" text-anchor="middle" dominant-baseline="middle">?</text>`;
+    }
+    nodes += `</g>`;
+  }
+
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+    <rect width="${W}" height="${H}" fill="#050508" rx="8"/>
+    ${edges}${nodes}
+  </svg>`;
+}
+
+// ── Diario di Viaggio ─────────────────────────────────────────────────────────
+
+diaryBtn.addEventListener('click', openDiaryModal);
+
+async function openDiaryModal() {
+  document.getElementById('modal-diary').classList.remove('hidden');
+  document.getElementById('diary-entries-list').innerHTML =
+    '<div class="diary-empty">Caricamento…</div>';
+
+  try {
+    const data = await apiFetch('/diary');
+    diaryCache = (data.entries || []).slice().reverse(); // più recenti prima
+    populateDiaryZoneSelect();
+    filterDiary();
+  } catch (e) {
+    document.getElementById('diary-entries-list').innerHTML =
+      `<div class="diary-empty">⚠ ${e.message}</div>`;
+  }
+}
+
+function populateDiaryZoneSelect() {
+  const zones = [...new Set(diaryCache.map(e => e.location).filter(Boolean))].sort();
+  const sel = document.getElementById('diary-zone-select');
+  sel.innerHTML = '<option value="">Tutte le zone</option>' +
+    zones.map(z => `<option value="${z}">${z}</option>`).join('');
+  sel.value = diaryZoneFilter;
+}
+
+function filterDiary() {
+  const searchVal = document.getElementById('diary-search').value.toLowerCase().trim();
+  diaryZoneFilter = document.getElementById('diary-zone-select').value;
+
+  const filtered = diaryCache.filter(e => {
+    if (diaryZoneFilter && e.location !== diaryZoneFilter) return false;
+    if (!searchVal) return true;
+    return (e.location || '').toLowerCase().includes(searchVal) ||
+           (e.sub_location || '').toLowerCase().includes(searchVal) ||
+           (e.summary || '').toLowerCase().includes(searchVal) ||
+           (e.npcs || []).some(n => n.toLowerCase().includes(searchVal));
+  });
+
+  document.getElementById('diary-subtitle').textContent =
+    `${filtered.length} di ${diaryCache.length} eventi`;
+
+  const list = document.getElementById('diary-entries-list');
+
+  if (!diaryCache.length) {
+    list.innerHTML = '<div class="diary-empty">Nessun evento registrato ancora.<br>Il diario si riempirà con le tue avventure.</div>';
+    return;
+  }
+  if (!filtered.length) {
+    list.innerHTML = '<div class="diary-empty">Nessun evento corrisponde al filtro.</div>';
+    return;
+  }
+
+  list.innerHTML = filtered.map(e => {
+    const npcBadges = (e.npcs || []).map(n => `<span class="diary-npc-badge">${n}</span>`).join('');
+    const subLoc = e.sub_location ? `<span class="diary-sublocation">› ${e.sub_location}</span>` : '';
+    return `<div class="diary-entry">
+      <div class="diary-entry-header">
+        <span class="diary-location">${e.location || '—'}</span>
+        ${subLoc}
+        <span class="diary-entry-id">#${e.id}</span>
+      </div>
+      <div class="diary-summary">${e.summary || ''}</div>
+      ${npcBadges ? `<div class="diary-npcs">${npcBadges}</div>` : ''}
+    </div>`;
+  }).join('');
 }
 
 // ── Start ─────────────────────────────────────────────────────────────────────

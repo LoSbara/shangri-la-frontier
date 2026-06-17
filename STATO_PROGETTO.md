@@ -1,13 +1,13 @@
 # Shangri-La Frontier — Stato del Progetto
 
 > Documento di riferimento completo per discussioni sull'avanzamento del progetto.  
-> Ultimo aggiornamento: 2026-06-16 | Commit: `aca8d9b`
+> Ultimo aggiornamento: 2026-06-17 (sessione 18 — migrazione DeepSeek, rolling window, battle tags engine completo, calcolatore combattimento, world state persistence, HUD cooldown)
 
 ---
 
 ## 1. Cos'è il progetto
 
-Un **VRMMO play-by-chat testuale hardcore** ispirato a *Shangri-La Frontier*. Il giocatore (Giacomo) interagisce con un Game Master AI (Claude/LLM via Groq) che narra l'avventura in italiano e aggiorna in tempo reale lo stato del personaggio su file JSON.
+Un **VRMMO play-by-chat testuale hardcore** ispirato a *Shangri-La Frontier*. Il giocatore (Giacomo) interagisce con un Game Master AI che narra l'avventura in italiano e aggiorna in tempo reale lo stato del personaggio su file JSON.
 
 La filosofia di design è: **nessun automatismo magico**. Ogni esito dipende dalle statistiche nel JSON. Il GM legge i file prima di ogni risposta e aggiorna tutto in modo coerente.
 
@@ -17,12 +17,23 @@ La filosofia di design è: **nessun automatismo magico**. Ogni esito dipende dal
 
 ```
 Backend:   Node.js + Express
-AI:        Groq API — modello llama-3.3-70b-versatile (JSON mode forzato)
+AI:        DeepSeek v4-flash via OpenAI SDK (baseURL: api.deepseek.com, JSON mode, streaming)
 Frontend:  Vanilla JS + HTML + CSS (no framework)
 Storage:   File JSON locali in /data/
 Porta:     3000
 Repo:      https://github.com/LoSbara/shangri-la-frontier
 ```
+
+**Perché DeepSeek v4-flash:** migrazione da Ollama locale (qwen2.5:7b insufficiente per instruction following complesso) a API cloud. DeepSeek supporta prefix caching nativo (context caching per ridurre costi e latenza), JSON mode forzato (`response_format: { type: 'json_object' }`), streaming con `stream_options: { include_usage: true }`.
+
+**Gestione context window e caching:** prompt strutturato a 3 livelli per massimizzare il prefix cache hit di DeepSeek:
+- **Livello 1** (statico): regole gioco, lore, schema JSON — invariante tra turni
+- **Livello 2** (semi-statico): personaggio, equipaggiamento, skill, lore zona — cambia raramente → cache hit alto
+- **Livello 3** (dinamico): HP/MP/STM correnti, location, stato combattimento — cambia ad ogni turno
+- Rolling window history: `MAX_SESSION_HISTORY = 12` messaggi in `session_log`
+- Logging automatico token: input totali, cached tokens, % hit rate per ogni turno
+
+**Streaming SSE (implementato):** `POST /api/chat` ora usa `text/event-stream`. Il frontend riceve token in tempo reale durante la generazione — la bolla del GM appare immediatamente e si riempie progressivamente.
 
 ---
 
@@ -30,24 +41,32 @@ Repo:      https://github.com/LoSbara/shangri-la-frontier
 
 ```
 Shanfro/
-├── server.js               # Backend Express (1551 righe)
+├── server.js               # Backend Express (~1900 righe)
 ├── CLAUDE.md               # Istruzioni sistema per il GM AI
-├── .env                    # GROQ_API_KEY
+├── .env                    # DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, PORT
 ├── public/
-│   ├── index.html          # UI (365 righe)
-│   ├── app.js              # Frontend JS (1603 righe)
-│   └── style.css           # Stili (1972 righe)
+│   ├── index.html          # UI
+│   ├── app.js              # Frontend JS
+│   └── style.css           # Stili
 └── data/
-    ├── player_profile.json   # Stato personaggio
+    ├── player_profile.json   # Stato personaggio (+ skill_cooldowns)
     ├── inventory.json        # Equipaggiamento e borsa
-    ├── game_state.json       # Posizione, quest, log sessione
-    ├── skills_library.json   # 249 skill (sbloccate/da sbloccare)
+    ├── game_state.json       # Posizione, quest, log sessione, context_memo
+    ├── travel_diary.json     # Diario di viaggio permanente (entries narrative)
+    ├── skills_library.json   # Skill (base + T2 + T3)
+    ├── quests_database.json  # Database quest con obiettivi e rewards
+    ├── dungeons.json         # Database dungeon con stanze e connessioni
     ├── bestiary.json         # Nemici incontrati
     ├── npcs.json             # NPC persistenti
+    ├── shop.json             # Assortimento negozio corrente
     ├── titles.json           # 15 titoli ottenibili
+    ├── world_map.json        # Zone della mappa mondiale
     ├── unique_events.json    # 8 eventi unici one-shot
     ├── unique_items.json     # 10 oggetti leggendari/epici
     ├── unique_monsters.json  # 8 boss unici
+    ├── world/               # Lore zone statiche (es. bosco_novizi.json)
+    ├── save/                # World state per-player mutable ([player_id]_world_state.json)
+    ├── backups/             # Snapshot automatici su level_up / unique event
     └── slots/               # Slot di salvataggio (save1-3)
 ```
 
@@ -59,25 +78,37 @@ Shanfro/
 Player digita messaggio
         │
         ▼
-  POST /api/chat
+  POST /api/chat  (Content-Type: text/event-stream — SSE)
         │
         ├── readData(player_profile, inventory, skills, game_state, npcs)
-        ├── buildSystemPrompt(...)   ← costruisce contesto completo per l'LLM
-        ├── Groq API call (JSON mode) ← llama-3.3-70b-versatile
-        │       risponde con: { narrative, state_updates, bag_add, new_skills, ui_events, ... }
+        ├── buildSystemPrompt(...)   ← include: personaggio, stripBagForAI(borsa),
+        │                              context_memo, diaryBlock, CAMPI JSON RISPOSTA
+        │                              (compatto, ~2600 token totali)
         │
+        ├── ollamaChatStream(messages, { format: GM_RESPONSE_SCHEMA })
+        │       Ollama streaming NDJSON → estrazione real-time del campo "narrative"
+        │       → emit SSE: data: {"type":"token","text":"..."}  (per ogni token narrativo)
+        │
+        ├── (quando stream completo) JSON.parse(fullBuffer)
+        │       parsed = { narrative, state_updates, bag_add, new_skills, ui_events,
+        │                  context_memo, diary_entry, battle_tags, reputation_delta,
+        │                  npc_add, npc_update, appraise_item }
+        │       ← tutti i campi top-level (bag_add, reputation_delta, ecc.)
+        │
+        ├── salva context_memo → game_state.context_memo
+        ├── salva diary_entry → travel_diary.json (se evento significativo)
         ├── deepMerge(profile, state_updates.player)
         ├── deepMerge(gameState, state_updates.game_state)
-        ├── checkLevelUp(profile)
-        ├── checkSkillUnlocks(profile, skills)
-        ├── checkTitles(profile, skills)
-        ├── gestione bag_add / appraise_item / reputation_delta / npc_add / npc_update
+        ├── applica bag_add / appraise_item / reputation_delta / npc_add / npc_update
+        ├── checkLevelUp / checkSkillUnlocks / checkTitles / checkQuestProgress
         │
-        ├── writeData(player_profile, inventory, skills, game_state, npcs)
-        └── res.json({ narrative, newSkills, newTitles, ... })
+        ├── writeData(player_profile, inventory, skills, game_state, npcs, diary)
+        └── emit SSE: data: {"type":"done", narrative, ui_events, state, ...}
 ```
 
-**Nota critica — `deepMerge`**: gli array vengono **sostituiti interamente**, non concatenati. Per aggiungere oggetti alla borsa si usa `bag_add` (array separato), non `state_updates.inventory.bag`.
+**Nota critica — `deepMerge`**: gli array vengono **sostituiti interamente**, non concatenati. Per aggiungere oggetti alla borsa si usa `bag_add` (top-level nel JSON di risposta), non `state_updates.inventory.bag`.
+
+**Nota — campi top-level**: `bag_add`, `reputation_delta`, `npc_add`, `npc_update`, `appraise_item`, `diary_entry`, `battle_tags` sono tutti al livello radice del JSON di risposta GM (non dentro `state_updates`). Il server mantiene compatibilità con `state_updates.*` come fallback.
 
 ---
 
@@ -140,8 +171,8 @@ Player digita messaggio
       "stat_bonus": { "TEC": 4 },
       "rarity": "raro",
       "price": 200,
-      "appraised": false,          // ← oggetti non valutati: stat nascoste in UI
-      "enhancement_level": 0       // ← 0-5, +1 stat per livello
+      "appraised": false,       // oggetti non valutati: stat nascoste in UI
+      "enhancement_level": 0    // 0-5, +1 stat per livello
     }
   ]
 }
@@ -155,44 +186,114 @@ Player digita messaggio
   "zone_type": "safe_zone",
   "quests_active": [],
   "quests_completed": [],
-  "unique_scenario_flags": {},     // { "gladiatore_antico_completato": true }
+  "unique_scenario_flags": {},
   "combat_active": false,
-  "current_enemy": null,           // vedi sotto
-  "skill_loadout": [],             // skill equipaggiate (max skill_slots)
-  "session_log": []                // storico messaggi GM/player
-}
-
-// current_enemy durante il combattimento:
-{
-  "name": "Lupo Selvatico", "tier": "D", "level": 3,
-  "hp": { "current": 45, "max": 80 },
-  "stats": { "STR": 10, "AGI": 8, "resistenza": 5 },
-  "weaknesses": ["fuoco"],
-  "revealed": true
+  "current_enemy": null,
+  "skill_loadout": [],
+  "session_log": [],            // ultimi 4 messaggi (2 scambi) per context window
+  "context_memo": "",           // memoria di lavoro della scena corrente (aggiornata dal GM)
+  "current_dungeon_id": null,   // dungeon attivo
+  "current_room_id": null,      // stanza corrente nel dungeon
+  "rooms_visited": [],          // stanze visitate nel dungeon
+  "counters": {}
 }
 ```
 
-### 5.4 Oggetto nella borsa — Skill
+### 5.4 `travel_diary.json`
 ```json
 {
-  "id": "colpo_preciso",
-  "name": "Colpo Preciso",
-  "type": "physical",
-  "branch": "DEX",
-  "requirements": { "stats": { "DEX": 12 } },
-  "cost": { "STM": 15 },
-  "effect": "Attacco preciso. Danno = DEX × 1.8. +20% critico.",
-  "learned": false
+  "entries": [
+    {
+      "id": 1,
+      "location": "Crysta",
+      "sub_location": "Bottega di Goro",
+      "summary": "Ho incontrato Goro il Fabbro, un veterano burbero ma onesto. Mi ha venduto una spada d'acciaio a 190R dopo una trattativa. Ha accennato a materiali rari nelle miniere di Aokara.",
+      "npcs": ["goro_fabbro"]
+    }
+  ]
+}
+```
+
+Il GM scrive una voce solo per eventi significativi: prima visita a un luogo, boss sconfitti, lore importante, NPC memorabili, svolte narrative. Il server inietta nel system prompt solo le voci rilevanti per la zona corrente (max 2) + l'ultima voce in assoluto per continuità.
+
+### 5.5 `quests_database.json`
+```json
+{
+  "quests": [
+    {
+      "id": "quest_id",
+      "name": "Nome Quest",
+      "description": "Descrizione",
+      "status": "disponibile",       // disponibile | attiva | completata
+      "objectives": [
+        { "id": "obj_1", "description": "Uccidi 5 lupi", "type": "kill",
+          "target": "Lupo", "required": 5, "current": 0 }
+      ],
+      "rewards": { "exp": 200, "money": 100, "items": [] },
+      "prerequisite_quests": [],
+      "min_level": 1,
+      "location": "Crysta"
+    }
+  ]
+}
+```
+
+### 5.6 `dungeons.json`
+```json
+{
+  "dungeons": [
+    {
+      "id": "dungeon_id",
+      "name": "Nome Dungeon",
+      "location": "Crysta",
+      "rooms": [
+        {
+          "id": "room_01",
+          "name": "Ingresso",
+          "type": "combat",     // combat | trap | puzzle | boss | reward | empty
+          "description": "...",
+          "connections": ["room_02", "room_03"],
+          "visited": false
+        }
+      ]
+    }
+  ]
 }
 ```
 
 ---
 
-## 6. Formule di Gioco
+## 6. Sistema Memoria AI (Context Management)
+
+Il problema principale è il context window limitato (4096 token con Ollama locale). La soluzione usa tre livelli di memoria:
+
+### 6.1 History verbatim (breve termine)
+- Ultimi 4 messaggi (2 scambi GM↔player) inclusi nel prompt
+- Sufficiente per ricordare la risposta immediata precedente
+- Memorizzato in `game_state.session_log`
+
+### 6.2 Context Memo (medio termine)
+- Campo `game_state.context_memo` — stringa aggiornata dal GM ad ogni turno
+- Contiene: accordi presi, stato trattative, info emerse, obiettivi attivi
+- Stile telegrafico: "Goro ha offerto spada 220R → player ha proposto 180R. Goro accetta 190R."
+- Sostituisce la necessità di storia verbatim lunga
+- Incluso nel system prompt sotto `## FILO NARRATIVO ATTUALE`
+
+### 6.3 Diario di Viaggio (lungo termine / permanente)
+- File `data/travel_diary.json` — array di entry narrative
+- Il GM scrive entry solo per eventi significativi (prima visita, boss, lore, NPC importanti)
+- 2-3 frasi in prima persona, stile diaristico
+- Il server inietta nel prompt solo le entry rilevanti per la zona corrente
+- Consultabile via `GET /api/diary`
+- Persiste tra sessioni — è la "memoria episodica" dell'avventura
+
+---
+
+## 7. Formule di Gioco
 
 ```
 Danno fisico   = (STR_totale + bonus_arma) × moltiplicatore_skill × (1 − resistenza/100)
-Danno totale   = totalStat(profile, inventory, 'STR')  ← somma stat base + equipaggiamento
+totalStat()    = stat_base + stat_bonuses_from_equipment[stat]
 % Schivata     = AGI_player / (AGI_player + AGI_nemico) × 100
 % Critico base = LUC / 10    →  critico = danno × 1.5
 Analisi        = clamp((TEC + LUC) / 20 × 100, 30, 100)%
@@ -208,11 +309,19 @@ Level up (ogni EXP_to_next raggiunta):
 
 ---
 
-## 7. Sistemi Implementati
+## 8. Sistemi Implementati
 
-### 7.1 Chat con GM AI
-Il sistema core. Il GM riceve un system prompt con tutto lo stato del personaggio, poi risponde **esclusivamente in JSON**:
+### 8.1 Chat con GM AI
+Il sistema core. Il GM riceve un system prompt (~2600 token) con tutto lo stato del personaggio, poi risponde con **JSON strutturato in streaming**. Il formato è imposto da `GM_RESPONSE_SCHEMA` passato a Ollama come parametro `format` (structured output — il modello non può deviare dalla struttura).
 
+**Architettura SSE dual-phase:**
+1. Frontend fa `fetch('/api/chat')` e apre uno stream SSE
+2. Server chiama `ollamaChatStream` con `format: GM_RESPONSE_SCHEMA`
+3. I token del campo `narrative` vengono estratti in real-time e inviati come `{"type":"token","text":"..."}`
+4. Al termine, il JSON completo viene parsato, tutto lo stato aggiornato, e inviato `{"type":"done",...}`
+5. Il frontend riempie la bolla GM progressivamente mentre i token arrivano
+
+**Schema risposta GM (`GM_RESPONSE_SCHEMA`):**
 ```json
 {
   "narrative": "Narrazione in markdown italiano...",
@@ -220,23 +329,28 @@ Il sistema core. Il GM riceve un system prompt con tutto lo stato del personaggi
     "player": { "stats": { "HP": { "current": 85 } }, "money": 475 },
     "game_state": { "location": "Foresta di Aokara", "combat_active": true }
   },
-  "bag_add": [{ "id": "pozione_01", "name": "Pozione di Cura", ... }],
+  "bag_add": [{ "id": "pozione_01", "name": "Pozione di Cura", "type": "consumable", "slot": null, "stat_bonus": {}, "rarity": "comune", "price": 50 }],
   "new_skills": [],
   "ui_events": ["level_up", "skill_unlocked"],
-  "counters": { "dodges": 1, "criticals": 0 },
+  "battle_tags": ["player_dodge", "player_critical", "skill_used:colpo_preciso"],
   "reputation_delta": { "hunters_guild": 5 },
   "npc_add": { "id": "goro_fabbro", "name": "Goro il Fabbro", "relationship": 10 },
-  "appraise_item": { "bag_index": 0 }
+  "context_memo": "Da Goro il Fabbro. Vuole 190R per la spada. Player ha 100R — troppo poco.",
+  "diary_entry": { "location": "Crysta", "sub_location": "Bottega di Goro",
+                   "summary": "Ho incontrato Goro...", "npcs": ["goro_fabbro"] },
+  "appraise_item": { "item_id": "lama_misteriosa" }
 }
 ```
 
-### 7.2 Sistema Statistiche e Level Up
+**Nota**: tutti i campi tranne `state_updates` sono al livello radice del JSON (non dentro `state_updates`). Il server gestisce compatibilità legacy `state_updates.*` come fallback.
+
+### 8.2 Sistema Statistiche e Level Up
 - 6 stat principali: STR, DEX, AGI, TEC, VIT, LUC
 - `stat_points_available` distribuibili liberamente dall'UI
 - Level up automatico lato server al superamento di `experience_to_next`
 - `totalStat(profile, inventory, stat)` calcola stat effettiva (base + equipment bonus)
 
-### 7.3 Albero delle Classi (3 tier)
+### 8.3 Albero delle Classi (3 tier)
 
 ```
 Classe Base (T0)           →  Specializzazione (T2)      →  Classe Avanzata (T3)
@@ -271,7 +385,12 @@ Ingegnere (TEC15/STR13)    → Meccanico                   → Mastro Ingegnere 
 
 **Totale classi:** 5 base → 16 T2 (13 uniche + Sovereigno condiviso) → 32 T3
 
-### 7.4 Libreria Skill (249 totali)
+**Requisiti stat per avanzamento (validati server-side con `totalStat`):**
+- T2 (lv.10): Mercenario STR 15/VIT 12 | Scout DEX 15/AGI 13 | Mago TEC 15/LUC 12 | Sacerdote VIT 15/LUC 12 | Ingegnere TEC 15/STR 12
+- T3 (lv.20): soglie più alte (+10 sulla stat primaria, +6 sulla secondaria vs T2)
+- Errore leggibile in UI: `"Requisiti stat non soddisfatti per la specializzazione: DEX 15, AGI 13"`
+
+### 8.4 Libreria Skill
 
 | Branch | Skill | Tipo Requisito |
 |--------|-------|----------------|
@@ -281,17 +400,12 @@ Ingegnere (TEC15/STR13)    → Meccanico                   → Mastro Ingegnere 
 | `sacerdote_base` | 4 | `job: "Sacerdote"` |
 | `ingegnere_base` | 4 | `job: "Ingegnere"` |
 | `special` | 5 | Contatori `action_counters` |
-| T2 (13 branch) | 5 ciascuno (65 tot) | `subclass` |
+| T2 (16 branch) | 5 ciascuno (80 tot) | `subclass` |
 | T3 (32 branch) | 4 ciascuno (128 tot) | `advanced_class` |
 
-**Requisiti di unlock (in `checkSkillUnlocks`):**
-- `requirements.stats` — stat minime
-- `requirements.subclass` — specializzazione T2
-- `requirements.advanced_class` — classe avanzata T3
-- `requirements.job` — classe base specifica
-- `requirements.skill` — skill prerequisito
-- `requirements.title` — titolo guadagnato
-- `requirements.counter` — `{ "enemies_defeated": 20 }` ecc.
+**Totale skills in libreria: 249** (verificato — nessun branch mancante)
+
+`checkSkillUnlocks()` ora supporta: `req.level`, `req.stats`, `req.skill`, `req.title`, `req.subclass`, `req.advanced_class`, `req.job`, `req.counter`
 
 **Skill Speciali (branch `special`) — unlock da contatori:**
 ```
@@ -302,26 +416,26 @@ spe_fortuna_cacciatore → unique_completed >= 3
 spe_risurrezione_fallen→ near_death_survives >= 5
 ```
 
-### 7.5 Inventario e Borsa
+### 8.5 Inventario e Borsa
 - Slot equipaggiamento: `weapon, offhand, head, chest, legs, boots, accessory_1, accessory_2`
 - `/api/equip` e `/api/unequip` aggiornano `equipped` e ricalcolano `stat_bonuses_from_equipment`
 - Rarità: comune < non_comune < raro < epico < leggendario
 - Consumabili: `type: "consumable"` → pulsante "Usa" in UI
 - Materiali: `type: "material"` → usati per potenziamento
 
-### 7.6 Potenziamento Armi (+1…+5)
+### 8.6 Potenziamento Armi (+1…+5)
 Endpoint: `POST /api/enhance`  
 Costo: `50 × (enhancement_level + 1)²` Ragne + 1 materiale  
 Effetto: +1 a ogni stat_bonus dell'oggetto per livello  
 UI: pulsante ✦ su ogni oggetto potenziabile (se ci sono materiali in borsa)
 
-### 7.7 Valutazione Oggetti (Appraisal)
+### 8.7 Valutazione Oggetti (Appraisal)
 Oggetti con `appraised: false` mostrano `?` in UI al posto delle stat.  
 Il player usa `POST /api/appraise-item`.  
 Check: `Math.random()*100 < Math.max(20, Math.min(90, TEC*5))`  
 Il GM può rivelare oggetti narrativamente via `state_updates.appraise_item`.
 
-### 7.8 Effetti di Stato
+### 8.8 Effetti di Stato
 Il GM invia l'**array completo** degli stati attivi (sostituisce il precedente):
 ```json
 "status_effects": [
@@ -331,96 +445,63 @@ Il GM invia l'**array completo** degli stati attivi (sostituisce il precedente):
 ```
 UI: pill colorati sopra il pannello laterale (nascosti quando array vuoto).
 
-### 7.9 Reputazione Fazioni
+### 8.9 Reputazione Fazioni
 5 fazioni: `hunters_guild, merchants, city_guard, scholars, underground`  
 Range: -100…+100 | Label: Nemico / Diffidente / Neutrale / Amico / Alleato  
 Il GM invia **delta** via `reputation_delta: { "hunters_guild": 10 }`.  
 Effetto gameplay: sconto negozio con `merchants` reputazione alta.  
 UI: barre di progressione nel pannello laterale.
 
-### 7.10 NPC Persistenti
+### 8.10 NPC Persistenti
 Stored in `data/npcs.json`.  
 Il GM crea/aggiorna via `npc_add` / `npc_update` nel JSON di risposta.  
 Ogni NPC: `{ id, name, faction, relationship (-100..100), notes, last_seen, location }`  
 UI: modal 👤 con card NPC, barra relazione, badge "qui ora" se NPC è nella zona corrente.  
 Il system prompt include gli NPC presenti nella zona corrente.
 
-### 7.11 Sistema Titoli (15 titoli)
+### 8.11 Sistema Titoli (15 titoli)
 Sbloccati automaticamente da `checkTitles()` dopo ogni risposta chat.  
 Condizioni: nemici sconfitti, schivate, critici, zone visitate, livello, ecc.  
-Ricompense: stat bonus, skill slots extra, skill speciali.  
-Esempio: `unique_slayer` (1 unique completato) → +3 STR/AGI/LUC + skill `vorpal_soul`.
+Ricompense: stat bonus, skill slots extra, skill speciali.
 
-### 7.12 Negozio
+### 8.12 Negozio
 - `GET /api/shop` — lista oggetti
 - `POST /api/shop/generate` — GM genera assortimento dinamico
 - `POST /api/shop/buy` — acquisto con controllo fondi e sconto reputazione
 - `POST /api/shop/sell` — vendita (50% del prezzo base)
 
-### 7.13 Bestiario
+### 8.13 Quest Tracker
+- `quests_database.json` — database quest con obiettivi tipizzati (kill, collect, visit, talk, craft)
+- `GET /api/quests` — lista quest con stato corrente
+- `POST /api/quest/start` — attiva una quest
+- Progresso obiettivi aggiornato dal server dopo ogni risposta chat (`checkQuestProgress`)
+- UI: modal 📜 con sezioni Attive / Disponibili / Completate, barra progresso per obiettivo
+- HUD pin nel pannello sinistro: mostra la quest selezionata con barra progresso compatta
+- Toast animato a schermo quando una quest viene completata
+
+### 8.14 Sistema Dungeon
+- `dungeons.json` — database dungeon con stanze e connessioni
+- Ogni stanza ha tipo: `combat | trap | puzzle | boss | reward | empty`
+- `POST /api/dungeon/enter` — entra in un dungeon, imposta stanza iniziale
+- `GET /api/dungeon/map` — mappa del dungeon corrente con stato stanze visitate
+- Il GM aggiorna `current_room_id` in `state_updates.game_state` quando il player si sposta
+- UI mappa: modal con SVG generato via BFS layout — nodi rettangolari colorati per tipo, archi connessioni, stanza corrente evidenziata con animazione pulse. Si apre automaticamente al posto della mappa mondiale quando il player è in un dungeon.
+
+### 8.15 Bestiario
 `data/bestiary.json` — nemici incontrati persistono con tier, level, weaknesses.  
 Modal 📖 in UI con lista filtrata.
 
-### 7.14 Mappa del Mondo
+### 8.16 Mappa del Mondo
 `GET /api/world-map` + `PUT /api/world-map`  
-Zones con `name, description, zone_type, connections[]`.  
-Modal mappa in UI con zone cliccabili.
+Zone con `name, description, zone_type, connections[]`.  
+Modal mappa in UI con zone SVG cliccabili (sostituita dalla mappa dungeon quando in dungeon).
 
-### 7.15 Slot di Salvataggio (3 slot)
-Copia snapshot di tutti i file JSON nella cartella `data/slots/slot{1-3}/`.  
-File inclusi: `player_profile, inventory, game_state, skills_library, bestiary, npcs`.  
+### 8.17 Slot di Salvataggio (3 slot)
+Snapshot di tutti i file JSON in `data/slots/slot{1-3}/`.  
 Endpoint: `GET /slots`, `POST /slots/:id/save`, `POST /slots/:id/load`, `DELETE /slots/:id`.
 
-### 7.16 Modalità GM
-`POST /api/gm-mode` + `POST /api/gm-respond` — interfaccia diretta con il GM senza passare per la chat player. Usato per comandi speciali o debug narrativo.
-
-### 7.17 Export Sessione
-`GET /api/export` — scarica il log della sessione come file JSON.
-
----
-
-## 8. Contenuto One-Shot (Unique)
-
-### 8.1 Events Unici (8)
-
-| ID | Trigger | Boss | Ricompensa Principale |
-|----|---------|------|----------------------|
-| `gladiatore_antico` | Crysta, REP gilda ≥20, LUC ≥13 | Gladiatore Antico (A, Lv15) | Skill: Colpo Leggendario |
-| `rovine_primordiali` | Prima visita Aokara, LUC ≥15 | Entità Primordiale (SS, Lv25) | Skill: Sangue degli Antichi |
-| `mercante_fantasma` | Taverna, LUC ≥16 | — | Accesso shop leggendario |
-| `cripta_del_re` | Crysta, TEC ≥14, nemici ≥10 | Re Perduto (SS, Lv20) | Oggetto: Corona del Re Perduto |
-| `specchio_del_doppio` | Lv ≥10, dungeon | Il Doppio (S, Lv+5) | +3 punti stat + Frammento Specchio |
-| `il_collezionista` | Bestiary ≥5 analizzati | — | Denaro + REP studiosi |
-| `trono_dei_cacciatori` | REP gilda ≥50 | Campione Gilda (S, Lv20) | Oggetto: Insegna del Campione |
-| `voce_del_caos` | Near-death ≥3, REP underground >0 | Entità del Caos (SSS, Lv30) | Skill: Risurrezione del Fallen |
-
-### 8.2 Oggetti Leggendari (10)
-
-| ID | Slot | Stat Bonus | Source |
-|----|------|-----------|--------|
-| `corona_del_re_perduto` | head | STR+3, VIT+5, LUC+3 | cripta_del_re |
-| `insegna_del_campione` | accessory_1 | STR+4, AGI+4, DEX+2 | trono_dei_cacciatori |
-| `frammento_specchio` | accessory_2 | TEC+6, LUC+4 | specchio_del_doppio |
-| `mantello_ombra_assoluta` | chest | AGI+6, DEX+4, VIT-2 | mercante_fantasma |
-| `amuleto_rinascita` | accessory_2 | VIT+5, HP+50 | mercante_fantasma |
-| `cristallo_arcano_potenziato` | accessory_1 | TEC+8, MP+30 | guardiano_torre |
-| `stivali_vento_eterno` | boots | AGI+8, DEX+3 | drop raro |
-| `guanti_del_colosseo` | hands | STR+7, VIT+3 | gladiatore_antico |
-| `tomo_del_fondatore` | offhand | TEC+5, LUC+5, MP+20 | boss finale |
-| `lama_ancestrale` | weapon | STR+6, DEX+6, TEC+4 | drop SSS |
-
-### 8.3 Boss Unici (8)
-
-| Nome | Tier | Lv | HP | Meccanica Speciale |
-|------|------|----|----|--------------------|
-| Gladiatore Antico | A | 15 | 600 | Contrattacca ogni parata ×2 |
-| Re Perduto | SS | 20 | 1200 | A 50% HP → modalità fantasma (fisico -50%) |
-| Entità Primordiale | SS | 25 | 2000 | Debuff casuale ogni turno; a 30% copia skill player |
-| Il Doppio | S | player+5 | player×1.2 | Usa stesse skill del player; immune al tipo più usato |
-| Campione della Gilda | S | 20 | 900 | Cambia pattern ogni 3 turni (3 fasi) |
-| Entità del Caos | SSS | 30 | 5000 | Resistenze mutanti; regen 5% se non attaccata |
-| Guardiano Torre Cristallo | SS | 18 | 1500 | Immune fisico; 5 crepe → resistenza -50% |
-| Ombra del Fondatore | SSS | 50 | 10000 | 5 fasi; fase finale replica primo combattimento |
+### 8.18 Modalità GM
+`POST /api/gm-mode` + `POST /api/gm-respond` — interfaccia diretta con il GM senza AI. Usato per debug narrativo o override manuali.
 
 ---
 
@@ -442,6 +523,11 @@ Endpoint: `GET /slots`, `POST /slots/:id/save`, `POST /slots/:id/load`, `DELETE 
 | POST | `/api/shop/buy` | Acquista oggetto |
 | POST | `/api/shop/sell` | Vendi oggetto |
 | GET | `/api/npcs` | Lista NPC persistenti |
+| GET | `/api/quests` | Lista quest con stato e progresso |
+| POST | `/api/quest/start` | Attiva una quest |
+| GET | `/api/diary` | Diario di viaggio (tutte le entry) |
+| GET | `/api/dungeon/map` | Mappa dungeon corrente |
+| POST | `/api/dungeon/enter` | Entra in un dungeon |
 | GET | `/api/unique-events` | Catalogo eventi unici |
 | GET | `/api/unique-items` | Catalogo oggetti leggendari |
 | GET | `/api/unique-monsters` | Catalogo boss unici |
@@ -465,7 +551,7 @@ Endpoint: `GET /slots`, `POST /slots/:id/save`, `POST /slots/:id/load`, `DELETE 
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  Top bar: [↺ Reset] [💾 Slot] [📤 Export] [📖 Bestiary] [👤 NPC] [🗺 Map]│
+│  Top bar: [↺][💾][📤][📖 Bestiary][👤 NPC][🗺 Map][📜 Quests][📕 Diary] │
 ├──────────────────┬──────────────────────────────────┬───────────────────┤
 │  LEFT PANEL      │       CHAT / NARRATIVE            │  RIGHT PANEL      │
 │                  │                                   │                   │
@@ -483,63 +569,92 @@ Endpoint: `GET /slots`, `POST /slots/:id/save`, `POST /slots/:id/load`, `DELETE 
 │ 🏆 REPUTAZIONE   │                                   │ 🗡 SKILL LOADOUT  │
 │  5 barre fazioni │                                   │  skill attive     │
 │                  │                                   │                   │
-│ 👤 PERSONAGGIO   │                                   │ 📚 ALBERO SKILL   │
-│  nome, classe,   │                                   │  branch filtrati  │
-│  livello, EXP    │                                   │  per classe       │
-│  stat (clicc.)   │                                   │                   │
-│  punti stat      │                                   │                   │
+│ 📋 QUEST ATTIVA  │                                   │ 📚 ALBERO SKILL   │
+│  HUD pin con     │                                   │  branch filtrati  │
+│  barra progresso │                                   │  per classe       │
+│                  │                                   │                   │
+│ 👤 PERSONAGGIO   │                                   │                   │
+│  nome, classe,   │                                   │                   │
+│  livello, EXP    │                                   │                   │
+│  stat + punti    │                                   │                   │
 └──────────────────┴──────────────────────────────────┴───────────────────┘
 ```
 
 **Modali attivi:**
 - Distribuzione punti stat
-- Selezione specializzazione T2
-- Selezione classe avanzata T3
+- Selezione specializzazione T2 / classe avanzata T3 (card con requisiti stat)
 - Bestiario
 - NPC persistenti
-- Mappa del mondo
+- Mappa del mondo (SVG interattiva)
+- Mappa dungeon (SVG BFS — si apre automaticamente in dungeon)
+- Quest tracker (Attive / Disponibili / Completate con barre progresso)
 - Slot di salvataggio
 - Negozio
+- **Diario di viaggio** (📕 — entries con filtro testo + select zona, NPC badge, ordine cronologico inverso)
+
+**Toast:** notifica animata a schermo quando una quest viene completata.
 
 ---
 
-## 11. Stato Attuale del Personaggio
+## 11. Pattern di Codice Chiave
 
+### 11.0 `GM_RESPONSE_SCHEMA` + `ollamaChatStream`
+```javascript
+// Schema JSON passato a Ollama come parametro format (structured output)
+const GM_RESPONSE_SCHEMA = {
+  type: 'object', required: ['narrative'],
+  properties: {
+    narrative, context_memo, state_updates, bag_add, new_skills,
+    ui_events, battle_tags, reputation_delta, npc_add, npc_update,
+    appraise_item, diary_entry
+  }
+};
+
+// Variante streaming: ritorna res.body (ReadableStream di NDJSON Ollama)
+async function ollamaChatStream(messages, opts) {
+  // fetch a /api/chat con stream: true, format: GM_RESPONSE_SCHEMA
+  return res.body; // ReadableStream
+}
 ```
-Nome:     Giacomino
-Classe:   Scout  (Lv 1, 0/100 EXP)
-Subclass: nessuna
-Soldi:    100 R
 
-STR: 10  DEX: 18  AGI: 15
-TEC: 10  VIT: 10  LUC: 15
+Il server legge il ReadableStream riga per riga (NDJSON), accumula i token in `fullBuffer`, e scansiona il campo `"narrative"` carattere per carattere per estrarlo in real-time. Gestisce sia `"narrative":"` che `"narrative": "` (con o senza spazio dopo `:`, dipende dalla generazione del modello).
 
-HP: 100/100  MP: 50/50  STM: 100/100
-Punti stat disponibili: 0
-
-Equipaggiamento: tutti gli slot vuoti
-Borsa: vuota
-Skill loadout: vuoto
-Titoli: nessuno
-Reputazione: tutte Neutra
-Zone visitate: Crysta
+### 11.05 `stripBagForAI` — riduzione borsa per il prompt
+```javascript
+function stripBagForAI(bag) {
+  return (bag || []).map(it => ({
+    id, name, type, slot, stat_bonus, rarity,
+    ...(it.enhancement_level ? { enh: it.enhancement_level } : {}),
+    ...(it.appraised === false ? { appraised: false } : {}),
+    // rimossi: description, price, quantity (non servono all'AI)
+  }));
+}
 ```
+Riduce ogni item di borsa da ~120 token a ~40 token prima di passarlo al system prompt.
 
----
-
-## 12. Pattern di Codice Chiave
-
-### 12.1 `buildSystemPrompt` — contesto per il GM
-La funzione più importante del backend. Costruisce il system prompt con:
+### 11.1 `buildSystemPrompt` — contesto per il GM
+La funzione più importante del backend. Costruisce il system prompt (~2600 token totali) con:
 - Stato completo del personaggio (HP, stat, titoli, stati, reputazione)
-- Equipaggiamento e borsa (con flag `[NON VALUTATO]` per oggetti non identificati)
+- Equipaggiamento e borsa stripped (`stripBagForAI`) con flag `[NON VALUTATO]` per oggetti non identificati
 - Skill loadout e skill sbloccabili (per suggerimenti organici)
 - NPC presenti nella zona corrente
 - Stato combattimento se attivo
-- Tutte le regole del gioco, formule, e istruzioni formato JSON
-- Sezioni dedicate a: effetti stato, reputazione, NPC, potenziamento, valutazione, eventi unici, oggetti leggendari, mostri, skill speciali
+- `context_memo` corrente sotto `## FILO NARRATIVO ATTUALE`
+- Voci diario rilevanti sotto `## DIARIO DI VIAGGIO`
+- Regole gioco + blocco `## CAMPI JSON RISPOSTA` compatto (13 righe, ~150 token)
+- **Rimossi**: `## FORMULE DI GIOCO` (~80 token), `## FORMATO RISPOSTA` con esempio JSON (~350 token), `## AGGIUNGERE OGGETTI` — tutti sostituiti dallo schema strutturato Ollama e dal blocco compatto
 
-### 12.2 `deepMerge` — aggiornamento stato
+### 11.2 `buildDiaryBlock` — iniezione selettiva diario
+```javascript
+function buildDiaryBlock(gameState) {
+  // Carica travel_diary.json
+  // Filtra: ultimi 2 entries per la zona corrente + ultima entry in assoluto
+  // Restituisce stringa markdown (max ~250 token) o stringa vuota
+}
+```
+Inietta solo voci rilevanti per non sprecare context window.
+
+### 11.3 `deepMerge` — aggiornamento stato
 ```javascript
 function deepMerge(target, source) {
   for (const key of Object.keys(source)) {
@@ -555,62 +670,166 @@ function deepMerge(target, source) {
 ```
 ⚠️ Gli array vengono sostituiti, mai concatenati. Per aggiungere oggetti si usa `bag_add`.
 
-### 12.3 `checkSkillUnlocks` — auto-sblocco skill
-```javascript
-function checkSkillUnlocks(profile, skills) {
-  // Controlla: req.stats, req.skill, req.title, req.subclass,
-  //            req.advanced_class, req.job, req.counter
-  // Se tutti i requisiti sono soddisfatti → sk.learned = true
-}
-```
-
-### 12.4 Template literal nesting — trappola nota
+### 11.4 Template literal nesting — trappola nota
 I template literal annidati con backtick dentro `${}` chiudono prematuramente il template esterno. Soluzione: precompilare le stringhe con concatenazione prima del template literal.
 
 ---
 
-## 13. Limitazioni e Gap Noti
+## 12. Limitazioni e Gap Noti
 
 | Area | Problema |
 |------|----------|
-| **Coerenza GM** | Il GM a volte dimentica di aggiornare i contatori (`counters`) nelle risposte di combattimento |
-| **Salvataggio automatico** | Nessun auto-save — se il server crasha, si perde l'ultima sessione |
-| **Validazione lato client** | La UI non valida l'affordability degli oggetti prima dell'acquisto (lo fa il server) |
-| **Mobile** | Il layout a 3 colonne non è responsive |
-| **Dungeon** | Non esiste un sistema dungeon strutturato — tutto è narrativo |
-| **Multi-player** | Architettura single-player (file JSON non concurrency-safe) |
-| **Slot `hands`** | Il slot `hands` esiste in `unique_items.json` ma non è definito in `inventory.json` |
-| **Action counters dal GM** | Il GM deve esplicitamente includere `counters` in ogni risposta di combattimento — se lo dimentica, i titoli e le skill speciali non avanzano |
-| **Unique events trigger** | Il trigger degli eventi unici è puramente narrativo (il GM decide) — non c'è controllo automatico lato server |
+| **Qualità LLM** | **Problema critico** — qwen2.5:7b non riesce a seguire istruzioni multi-step complesse. Il flusso di creazione personaggio (3 passi) continua a fallire nonostante riscritture del prompt. Il modello tende a ignorare i passi successivi e ripetere il PASSO 1. Vedere sezione 15 per analisi completa. |
+| **Context window** | 4096 token (limite RAM Ollama). System prompt ~2600 token → spazio per ~1400 token di storia + user message + risposta. Gestito con context_memo + diario selettivo. |
+| **Velocità AI** | qwen2.5:7b locale impiega 20-60 secondi per risposta. Mitigato con SSE streaming (typing animation + token progressivi), ma rimane un'esperienza lenta. |
+| **Coerenza GM** | 7b ignora spesso regole secondarie del prompt (battle_tags, sub_location). Le regole critiche (narrative, state_updates) funzionano parzialmente. |
+| **Mobile** | Il layout a 3 colonne non è responsive. |
+| **Multi-player** | Architettura single-player (file JSON non concurrency-safe). |
+| **Auto-save** | Nessun auto-save periodico — backup automatico avviene solo su level_up e unique event. |
+| **Dungeon procedurali** | I dungeon devono essere creati a mano in `dungeons.json`. Non c'è generazione procedurale. |
+| **Potenziamento oggetti (UI)** | Il pulsante ✦ in UI da verificare in gioco. |
 
 ---
 
-## 14. Possibili Sviluppi Futuri
+## 13. Prossimi Sviluppi Prioritari
 
-- **Sistema dungeon strutturato** — mappe a stanze con logica procedurale
-- **Combattimento multi-turno visivo** — UI dedicata con HP bar nemico in tempo reale
-- **Sistema crafting** — ricette per combinare materiali in oggetti
-- **Quest tracker** — UI dedicata con obiettivi tracciati e reward step-by-step
-- **Trigger automatici eventi unici** — il server controlla le condizioni e notifica il GM
-- **Calendario/tempo** — giorno/notte, stagioni, effetti gameplay
-- **Difficoltà adattiva** — il GM scala i nemici al livello corrente
-- **Modalità multiplayer** — sessioni separate per profili diversi
-- **Backup automatico** — snapshot a ogni level up o evento unico
+> **Blocco critico**: il problema LLM (sezione 15) deve essere risolto prima di sviluppare nuove feature. Un GM che non segue le istruzioni rende inutili tutte le logiche implementate.
+
+1. **[CRITICO] Valutare alternativa LLM** — trovare un modello/provider che segua il prompt multi-step in modo affidabile (vedere sezione 15 per opzioni)
+2. **Dungeon procedurali** — generazione automatica stanze da template
+3. **Primo dungeon completo** — dungeon starter manuale in `dungeons.json` per testare il sistema
+4. **Popolazione `world_map.json`** — zone, connessioni e zone_type per la mappa esplorabile
+5. **Bilanciamento drop/economy** — verificare reward quest e drop nemici in gioco
+
+**Completati in sessione 18:**
+- ✅ **Migrazione DeepSeek v4-flash** — sostituito Ollama locale con API DeepSeek via OpenAI SDK; `response_format: { type: 'json_object' }`, streaming con `include_usage: true`
+- ✅ **3-level prompt split** — Livello 1 (statico) / Livello 2 semi-statico (personaggio + lore zona) / Livello 3 dinamico (HP/MP/STM correnti) per massimizzare prefix cache hit DeepSeek
+- ✅ **FIFO queue** — `chatTail = chatTail.then(...).catch(...)` per serializzare richieste concorrenti
+- ✅ **Atomic writes** — guard `if (!streamComplete)` prima di tutte le `writeData`, `.bak` preventivo su `player_profile.json`
+- ✅ **Unicode stream parser** — gestione `\uXXXX` nel loop di estrazione narrative in streaming
+- ✅ **Rolling window** — `MAX_SESSION_HISTORY = 12` su `session_log`
+- ✅ **Token logging** — cache hit rate e conteggi DeepSeek loggiati per ogni turno
+- ✅ **World Memory dynamic loading** — `readData('world/[zona].json')` iniettato nel Livello 2
+- ✅ **Battle Tags Engine** — `processBattleTags` applica delta matematici da snapshot PRE-TURNO (immune ad allucinazioni AI)
+- ✅ **UI Events dispatch** — `dispatchUIEvents` con `SCREEN_SHAKE`, `RED_FLASH`, `HEAL_EFFECT` + CSS animations
+- ✅ **Loot Engine** — `BAG_ADD/BAG_REMOVE` con controllo quantità server-side
+- ✅ **Status Effects tick** — `tickStatusEffects` a inizio turno (danno/cura per turno), `STATUS_ADD/REMOVE` tags
+- ✅ **Quest Tracker** — `QUEST_START/PROGRESS` tags, auto-push `quest_completed` UI event
+- ✅ **Skill Cooldown Engine** — `SKILL_USE` valida CD + MP + STM server-side; `tickCooldowns` a inizio turno
+- ✅ **Atomic Snapshotting** — `readDataSafe` con fallback `.bak` su JSON corrotto; `autoBackup` su level_up/unique
+- ✅ **COMBAT_HIT Calculator** (Mod. 1) — tag `COMBAT_HIT_PLAYER_*` e `COMBAT_HIT_ENEMY_*`; danno calcolato da stats reali (Monster_STR, Player_VIT, skill multiplier, resistenza%)
+- ✅ **World State Persistence** (Mod. 2) — `/data/save/[player_id]_world_state.json`; init da file statico; aggiornamento `is_dead:true` quando HP nemico → 0; filtro liveMonsters nel Level 2
+- ✅ **UI HUD Cooldown** (Mod. 3) — `renderSkills(loadout, maxSlots, cooldowns)` con overlay `XTurni`; `updatePlayerHUD` function; CSS `.skill-on-cd` + `.skill-cd-overlay`
+
+**Completati in sessione 14:**
+- ✅ Creazione personaggio step-aware — `buildSystemPrompt` usa `gmTurns` per emettere PASSO 1 / PASSO 2 / PASSO 3
+- ✅ Stat esplicite nel prompt — valori JSON-ready per ogni classe
+- ✅ Money mismatch — allineati a 500R
+- ✅ Custom class stat_points — `stat_points_available: 18`
+- ✅ `unique_event_completed` — snapshot del valore precedente ora corretto
+- ✅ `buildUnlockableBlock` — check `req.level` aggiunto
+- ✅ Animazione caricamento chat — typing dots nella bolla GM
 
 ---
 
-## 15. Come Avviare
+---
+
+## 15. Problema LLM — Analisi e Opzioni
+
+### 15.1 Il problema
+
+Il modello `qwen2.5:7b` è insufficiente per questo caso d'uso. I sintomi osservati in gioco:
+
+- **Ripete sempre l'intro** "Benvenuti nel mondo di Shangri-La Frontier" ad ogni turno, anche dopo che il giocatore ha fornito nome e classe
+- **Nomi classi inventati** (Cacciatore, Stregone, Rovinatore) invece di usare quelli elencati nel prompt
+- **Istruzioni multi-step ignorate**: il modello non riesce a tenere traccia di "sei al passo 2 di 3"
+- **Placeholders letterali nel JSON**: tendenza a emettere `"STR": X` invece di sostituire il valore
+
+Il flusso di creazione personaggio richiede che il modello:
+1. Segua istruzioni condizionali in base al turno corrente
+2. Recuperi informazioni da turni precedenti (il nome da h[-2])
+3. Compili un JSON con valori specifici per la classe scelta
+
+Un modello da 7 miliardi di parametri fatica con tutto questo, soprattutto con un system prompt da ~2600 token che esaurisce gran parte del context window di 4096.
+
+### 15.2 Confronto con la situazione precedente
+
+| | Prima (API Groq) | Ora (Ollama locale) |
+|---|---|---|
+| **Modello** | Llama 3.1 70B o simile | qwen2.5:7b |
+| **Context window** | 8K–128K | 4096 (limite RAM) |
+| **Qualità instruction following** | Alta — seguiva prompt complessi | Bassa — ignora condizioni e step |
+| **Velocità** | ~2-5 secondi | 20-60 secondi |
+| **Costo** | Rate limit (100K TPD Groq free) | Gratuito ma inutilizzabile |
+| **JSON accuracy** | Alta | Media-bassa |
+
+### 15.3 Opzioni valutabili
+
+**Opzione A — Modello locale più grande**
+- `llama3.1:8b` o `mistral:7b` — qualità simile al 7b attuale, probabilmente insufficiente
+- `llama3.1:70b` o `qwen2.5:32b` — richiederebbe 20-40 GB RAM. Non fattibile sulla macchina attuale (13 GB totali)
+- **Conclusione**: la RAM è il collo di bottiglia, non il modello specifico
+
+**Opzione B — Tornare a Groq ma con tier pagato**
+- Groq Pro: rate limit molto più alto, modelli 70B disponibili (llama-3.1-70b-versatile)
+- Costo stimato: $5-20/mese per uso normale
+- **Pro**: alta qualità, bassa latenza (~2s), nessun limite hardware
+- **Contro**: costo, dipendenza da servizio esterno
+
+**Opzione C — OpenAI API**
+- `gpt-4o-mini`: ottimo instruction following, ~$0.15/1M token input, ~$0.60/1M output
+- Per una sessione media (~20 turni × ~3000 token/turno): ~$0.02 a sessione
+- **Pro**: instruction following eccellente, JSON mode nativo
+- **Contro**: costo (basso ma presente), latenza ~1-3s
+
+**Opzione D — Google Gemini API**
+- `gemini-1.5-flash`: gratuito fino a 1500 richieste/giorno (15 RPM free tier)
+- `gemini-2.0-flash`: veloce, context window 1M token, JSON mode supportato
+- **Pro**: free tier generoso, qualità alta, context enorme
+- **Contro**: 15 RPM = 15 messaggi/minuto (sufficiente per play-by-chat), possibili latenze
+
+**Opzione E — Anthropic Claude API**
+- `claude-haiku-3.5`: veloce, economico (~$0.80/1M input), ottimo instruction following
+- **Pro**: eccellente su prompt strutturati e JSON, coerenza altissima
+- **Contro**: costo, nessun free tier
+
+### 15.4 Raccomandazione tecnica
+
+Per questo progetto (prompt ~2600 token, JSON strutturato, istruzioni multi-step, italiano), servono almeno **13B-70B parametri** o un modello frontier (GPT-4o, Gemini, Claude).
+
+**Percorso consigliato**:
+1. Testare **Gemini 2.0 Flash** (free tier) — context 1M risolverebbe anche il problema della context window
+2. Se il free tier è insufficiente per le sessioni, valutare **gpt-4o-mini** per il costo bassissimo
+
+### 15.5 Impatto sull'architettura
+
+Il cambio di provider richiederebbe:
+- Sostituire `ollamaChat` / `ollamaChatStream` con il client del nuovo provider
+- Il `GM_RESPONSE_SCHEMA` (JSON structured output) è supportato nativamente da OpenAI, Gemini, Anthropic
+- Lo **streaming SSE** frontend non va modificato — cambia solo il backend che alimenta lo stream
+- Il system prompt rimane invariato — anzi, con più context window si potrebbe espandere
+
+---
+
+## 14. Come Avviare
 
 ```bash
 cd "Progetti privati/Shanfro"
-cp .env.example .env  # inserire GROQ_API_KEY
 npm install
 node server.js
 # → http://localhost:3000
 ```
 
-Variabili d'ambiente richieste:
+Requisiti:
+- **Ollama** in esecuzione su `http://localhost:11434`
+- **qwen2.5:7b** scaricato: `ollama pull qwen2.5:7b`
+- **RAM disponibile**: almeno 5 GB (il modello occupa ~4.7 GB)
+
+Variabili d'ambiente (`.env`):
 ```
-GROQ_API_KEY=gsk_...
-PORT=3000 (opzionale)
+PORT=3000
+OLLAMA_MODEL=qwen2.5:7b
+OLLAMA_URL=http://localhost:11434
 ```
+
+**Reset personaggio:** POST `/api/reset` oppure pulsante ↺ in UI.

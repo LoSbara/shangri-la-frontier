@@ -1,14 +1,21 @@
 require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const path = require('path');
-const fs = require('fs');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const express    = require('express');
+const cors       = require('cors');
+const path       = require('path');
+const fs         = require('fs');
+const { OpenAI } = require('openai');
+const app   = express();
+const PORT               = process.env.PORT           || 3000;
+const MODEL              = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
+const MAX_SESSION_HISTORY = 12; // max messaggi in session_log (rolling window — tiene snello il blocco dinamico)
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const MODEL = 'gemini-1.5-flash';
+const deepseek = new OpenAI({
+  apiKey:  process.env.DEEPSEEK_API_KEY,
+  baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
+});
+
+// FIFO queue — serializza le richieste /api/chat per evitare race condition sui file JSON
+let chatTail = Promise.resolve();
 
 const SUBCLASS_NAMES = {
   berserker: 'Berserker', guardian: 'Guardiano', blade_master: 'Lama Assoluta',
@@ -71,6 +78,24 @@ const ADV_CLASS_COMPAT = {
   inventore:  ['genio_creativo', 'golem_master'],
 };
 
+// Requisiti statistiche minime per sbloccare T2 (basate sui punti iniziali + bonus classe)
+const SUBCLASS_REQUIREMENTS = {
+  'Mercenario': { STR: 15, VIT: 12 },
+  'Scout':      { DEX: 15, AGI: 13 },
+  'Mago':       { TEC: 15, LUC: 12 },
+  'Sacerdote':  { VIT: 15, LUC: 12 },
+  'Ingegnere':  { TEC: 15, STR: 12 },
+};
+
+// Requisiti statistiche minime per sbloccare T3 (più elevati, livello 20)
+const ADV_CLASS_REQUIREMENTS = {
+  'Mercenario': { STR: 25, VIT: 18 },
+  'Scout':      { DEX: 25, AGI: 20 },
+  'Mago':       { TEC: 25, LUC: 18 },
+  'Sacerdote':  { VIT: 25, LUC: 18 },
+  'Ingegnere':  { TEC: 25, STR: 18 },
+};
+
 const REP_FACTIONS = [
   ['hunters_guild', 'Gilda'],
   ['merchants',     'Mercanti'],
@@ -87,12 +112,6 @@ function repLabel(val) {
   return 'Alleato';
 }
 
-if (!GEMINI_API_KEY) {
-  console.error('❌  GEMINI_API_KEY mancante nel file .env');
-  process.exit(1);
-}
-
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 function autoBackup(profile, gameState, uiEvents) {
   try {
@@ -111,6 +130,10 @@ function autoBackup(profile, gameState, uiEvents) {
   } catch { /* non-critical */ }
 }
 const DATA_DIR  = path.join(__dirname, 'data');
+const WORLD_DIR = path.join(DATA_DIR, 'world');
+if (!fs.existsSync(WORLD_DIR)) fs.mkdirSync(WORLD_DIR, { recursive: true });
+const SAVE_DIR  = path.join(DATA_DIR, 'save');
+if (!fs.existsSync(SAVE_DIR))  fs.mkdirSync(SAVE_DIR,  { recursive: true });
 const SLOTS_DIR = path.join(__dirname, 'data', 'slots');
 if (!fs.existsSync(SLOTS_DIR)) fs.mkdirSync(SLOTS_DIR, { recursive: true });
 const SLOT_FILES = ['player_profile.json', 'inventory.json', 'game_state.json', 'skills_library.json', 'bestiary.json', 'npcs.json'];
@@ -123,6 +146,22 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 function readData(filename) {
   return JSON.parse(fs.readFileSync(path.join(DATA_DIR, filename), 'utf-8'));
+}
+
+// Lettura difensiva: se il JSON è corrotto tenta ripristino dal .bak
+function readDataSafe(filename) {
+  try {
+    return readData(filename);
+  } catch {
+    const bakPath = path.join(DATA_DIR, filename + '.bak');
+    if (fs.existsSync(bakPath)) {
+      console.error(`⚠️  [SERVER] Critico: ${filename} corrotto! Ripristino di emergenza eseguito con successo dal backup .bak.`);
+      const bak = JSON.parse(fs.readFileSync(bakPath, 'utf-8'));
+      fs.writeFileSync(path.join(DATA_DIR, filename), JSON.stringify(bak, null, 2));
+      return bak;
+    }
+    throw new Error(`${filename} corrotto e backup .bak assente — impossibile avviare il turno.`);
+  }
 }
 
 function writeData(filename, data) {
@@ -283,6 +322,7 @@ function buildUnlockableBlock(profile, skills) {
   const available = skills.skills.filter(sk => {
     if (learned.has(sk.id) || sk.unlocked_by_default) return false;
     const req = sk.requirements || {};
+    if (req.level          && profile.level < req.level) return false;
     if (req.stats && !Object.entries(req.stats).every(([s, v]) => (profile.stats[s] || 0) >= v)) return false;
     if (req.skill          && !learned.has(req.skill)) return false;
     if (req.title          && !(profile.titles || []).some(t => t.id === req.title)) return false;
@@ -300,8 +340,289 @@ function buildUnlockableBlock(profile, skills) {
     : '  (nessuna — distribuisci punti stat o guadagna titoli)';
 }
 
-function buildSystemPrompt(profile, inventory, skills, gameState) {
+function stripBagForAI(bag) {
+  return (bag || []).map(it => ({
+    id:         it.id,
+    name:       it.name,
+    type:       it.type,
+    slot:       it.slot  || null,
+    stat_bonus: it.stat_bonus || {},
+    rarity:     it.rarity,
+    ...(it.enhancement_level ? { enh: it.enhancement_level } : {}),
+    ...(it.appraised === false ? { appraised: false } : {}),
+  }));
+}
+
+function buildDiaryBlock(gameState) {
+  let diary;
+  try { diary = readData('travel_diary.json'); } catch { return ''; }
+  const entries = diary.entries || [];
+  if (!entries.length) return '';
+  const loc = gameState.location;
+  const byLoc = entries.filter(e => e.location === loc).slice(-2);
+  const last = entries[entries.length - 1];
+  const toShow = byLoc.slice();
+  if (last && last.location !== loc && !toShow.find(e => e.id === last.id)) toShow.push(last);
+  if (!toShow.length) return '';
+  const lines = toShow.map(e =>
+    `• [${e.location}${e.sub_location ? ' › ' + e.sub_location : ''}] ${e.summary}`
+  ).join('\n');
+  return `\n## DIARIO DI VIAGGIO (memorie rilevanti per la scena)\n${lines}\n`;
+}
+
+function locationToZoneFile(location) {
+  return (location || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')  // rimuove accenti
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
+// Applica i battle_tags come fonte di verità matematica sullo stato,
+// partendo dallo snapshot PRE-TURNO per immunizzarsi da allucinazioni numeriche dell'AI.
+function processBattleTags(tags, profile, inventory, skills, gameState, snap, uiEvents) {
+  for (const tag of tags) {
+    try {
+      // ── BAG_ADD / BAG_REMOVE ─────────────────────────────────────────────────
+      const bagM = tag.match(/^BAG_(ADD|REMOVE)_(.+)_(\d+)$/);
+      if (bagM) {
+        const op = bagM[1], itemId = bagM[2], qty = Math.max(1, parseInt(bagM[3], 10));
+        inventory.bag = inventory.bag || [];
+        if (op === 'ADD') {
+          const existing = inventory.bag.find(it => it.id === itemId);
+          if (existing) {
+            existing.quantity = (existing.quantity || 1) + qty;
+          } else {
+            inventory.bag.push({
+              id: itemId, name: itemId.replace(/_/g, ' '), type: 'misc',
+              slot: null, stat_bonus: {}, rarity: 'comune',
+              price: 0, quantity: qty, appraised: true,
+            });
+          }
+        } else {
+          const idx = inventory.bag.findIndex(it => it.id === itemId);
+          if (idx >= 0) {
+            const avail = inventory.bag[idx].quantity || 1;
+            if (avail <= qty) inventory.bag.splice(idx, 1);
+            else inventory.bag[idx].quantity = avail - qty;
+          }
+          // item non trovato → noop difensivo
+        }
+        continue;
+      }
+
+      // ── STATUS_ADD_[id]_[duration]_[potency] ─────────────────────────────────
+      const statusAddM = tag.match(/^STATUS_ADD_(.+)_(\d+)_(\d+)$/);
+      if (statusAddM) {
+        const id = statusAddM[1], duration = parseInt(statusAddM[2], 10), potency = parseInt(statusAddM[3], 10);
+        if (id && !isNaN(duration) && !isNaN(potency)) {
+          profile.status_effects = (profile.status_effects || []).filter(e => e.id !== id);
+          const isHeal = /REGEN|RIGENERAZIONE/i.test(id);
+          profile.status_effects.push({
+            id, name: id.replace(/_/g, ' '),
+            type: isHeal ? 'buff' : 'debuff',
+            turns_remaining: duration, value: potency,
+            icon: isHeal ? '💚' : '⚠', color: isHeal ? '#22c55e' : '#ef4444',
+          });
+        }
+        continue;
+      }
+
+      // ── STATUS_REMOVE_[id] ───────────────────────────────────────────────────
+      const statusRemoveM = tag.match(/^STATUS_REMOVE_(.+)$/);
+      if (statusRemoveM) {
+        const id = statusRemoveM[1];
+        profile.status_effects = (profile.status_effects || []).filter(e => e.id !== id);
+        continue;
+      }
+
+      // ── QUEST_START_[quest_id] ───────────────────────────────────────────────
+      if (tag.startsWith('QUEST_START_')) {
+        const questId = tag.slice('QUEST_START_'.length);
+        if (!questId) continue;
+        profile.quests = profile.quests || { active: {}, completed: {} };
+        if (!profile.quests.active?.[questId] && !profile.quests.completed?.[questId]) {
+          profile.quests.active[questId] = { stage: 1, objectives: {} };
+          uiEvents.push('quest_started');
+        }
+        continue;
+      }
+
+      // ── QUEST_PROGRESS_[objective_key]_[qty] ─────────────────────────────────
+      const questProgressM = tag.match(/^QUEST_PROGRESS_(.+)_(\d+)$/);
+      if (questProgressM) {
+        const objKey = questProgressM[1], amount = parseInt(questProgressM[2], 10);
+        profile.quests = profile.quests || { active: {}, completed: {} };
+        for (const [questId, quest] of Object.entries(profile.quests.active || {})) {
+          const obj = quest.objectives?.[objKey];
+          if (!obj) continue;
+          obj.current = Math.min(obj.target, (obj.current || 0) + amount);
+          const allDone = Object.values(quest.objectives).every(o => (o.current || 0) >= o.target);
+          if (allDone) {
+            profile.quests.completed = profile.quests.completed || {};
+            profile.quests.completed[questId] = { ...quest, completed: true };
+            delete profile.quests.active[questId];
+            if (!uiEvents.includes('quest_completed')) uiEvents.push('quest_completed');
+          }
+        }
+        continue;
+      }
+
+      // ── SKILL_USE_[skill_id] ─────────────────────────────────────────────────
+      if (tag.startsWith('SKILL_USE_')) {
+        const skillId = tag.slice('SKILL_USE_'.length);
+        if (!skillId) continue;
+        const skillDef = skills?.skills?.find(s => s.id === skillId);
+        if (!skillDef) continue;
+        const cost    = skillDef.cost || {};
+        const mpCost  = cost.mp  || 0;
+        const stmCost = cost.stm || 0;
+        const cdTurns = skillDef.cooldown_turns || 0;
+        profile.skill_cooldowns = profile.skill_cooldowns || {};
+        const currentCD = profile.skill_cooldowns[skillId] || 0;
+        const canUse = currentCD === 0
+          && profile.stats.MP.current  >= mpCost
+          && profile.stats.STM.current >= stmCost;
+        if (canUse) {
+          profile.stats.MP.current  = Math.max(0, profile.stats.MP.current  - mpCost);
+          profile.stats.STM.current = Math.max(0, profile.stats.STM.current - stmCost);
+          if (cdTurns > 0) profile.skill_cooldowns[skillId] = cdTurns;
+        } else {
+          if (!uiEvents.includes('skill_error')) uiEvents.push('skill_error');
+          console.warn(`[SKILL] "${skillId}" bloccata — CD:${currentCD} | MP:${profile.stats.MP.current}/${mpCost} | STM:${profile.stats.STM.current}/${stmCost}`);
+        }
+        continue;
+      }
+
+      // ── COMBAT_HIT_PLAYER_[monster_id]_[attack_type] ─────────────────────────
+      // Il server calcola il danno da Monster_STR e Player_VIT (fonte di verità)
+      if (tag.startsWith('COMBAT_HIT_PLAYER_')) {
+        const enemy     = gameState.current_enemy;
+        const monsterSTR = enemy?.stats?.STR ?? 8;
+        const playerVIT  = totalStat(profile, inventory, 'VIT');
+        const defense    = Math.floor(playerVIT / 3);
+        const damage     = Math.max(1, monsterSTR - defense);
+        profile.stats.HP.current = Math.max(0, profile.stats.HP.current - damage);
+        console.log(`[COMBAT→Player] MonsterSTR:${monsterSTR} − DEF:${defense} = ${damage} danno (HP: ${profile.stats.HP.current}/${profile.stats.HP.max})`);
+        if (!uiEvents.includes('SCREEN_SHAKE')) uiEvents.push('SCREEN_SHAKE');
+        if (damage >= 10) uiEvents.push('RED_FLASH');
+        continue;
+      }
+
+      // ── COMBAT_HIT_ENEMY_[monster_id]_[skill_id] ─────────────────────────────
+      // Il server calcola il danno da STR/TEC + skill_multiplier e resistenza nemica
+      if (tag.startsWith('COMBAT_HIT_ENEMY_')) {
+        const enemy = gameState.current_enemy;
+        if (!enemy?.hp) continue;
+        // Identifica skill_id scorrendo il suffisso dal fondo
+        const suffix = tag.slice('COMBAT_HIT_ENEMY_'.length);
+        const parts  = suffix.split('_');
+        let skillDef = null;
+        for (let j = 1; j < parts.length; j++) {
+          const tryId = parts.slice(j).join('_');
+          const found = skills?.skills?.find(s => s.id === tryId && (s.unlocked_by_default || s.learned));
+          if (found) { skillDef = found; break; }
+        }
+        const playerSTR  = totalStat(profile, inventory, 'STR');
+        const playerTEC  = totalStat(profile, inventory, 'TEC');
+        const baseAtk    = skillDef ? (skillDef.damage_type === 'tec' ? playerTEC : playerSTR) : playerSTR;
+        const skillMult  = skillDef?.damage_multiplier ?? 1.0;
+        const resistenza = enemy.stats?.resistenza ?? 0;
+        const rawDmg     = Math.floor(baseAtk * skillMult);
+        const damage     = Math.max(1, rawDmg - Math.floor(rawDmg * resistenza / 100));
+        enemy.hp.current = Math.max(0, enemy.hp.current - damage);
+        console.log(`[COMBAT→Enemy] PlayerATK:${rawDmg} − Res:${resistenza}% = ${damage} danno (EnemyHP: ${enemy.hp.current}/${enemy.hp.max})`);
+        continue;
+      }
+
+      // ── Tag numerici: PLAYER_HP_-15 / ENEMY_HP_-30 / GOLD_GAIN_50 ───────────
+      const numM = tag.match(/^([A-Z]+)_([A-Z]+)_([+-]?\d+)$/);
+      if (!numM) continue;
+      const entity = numM[1], field = numM[2], delta = parseInt(numM[3], 10);
+      if (isNaN(delta)) continue;
+
+      if (entity === 'PLAYER') {
+        if (field === 'HP')
+          profile.stats.HP.current  = Math.max(0, Math.min(profile.stats.HP.max,  snap.HP  + delta));
+        else if (field === 'MP')
+          profile.stats.MP.current  = Math.max(0, Math.min(profile.stats.MP.max,  snap.MP  + delta));
+        else if (field === 'STM')
+          profile.stats.STM.current = Math.max(0, Math.min(profile.stats.STM.max, snap.STM + delta));
+      } else if (entity === 'ENEMY' && gameState.current_enemy?.hp) {
+        if (field === 'HP')
+          gameState.current_enemy.hp.current = Math.max(0, (snap.enemyHP ?? gameState.current_enemy.hp.current) + delta);
+      } else if (entity === 'GOLD') {
+        if (field === 'GAIN')
+          profile.money = Math.max(0, snap.money + Math.abs(delta));
+        else if (field === 'LOSE' || field === 'SPEND')
+          profile.money = Math.max(0, snap.money - Math.abs(delta));
+      } else if (entity === 'EXP' && field === 'GAIN') {
+        profile.experience = snap.exp + Math.abs(delta);
+      }
+    } catch { /* tag malformato — ignora difensivamente */ }
+  }
+}
+
+// Applica gli effetti di stato attivi a inizio turno (tick).
+// Restituisce array di { id, effect, amount } per il log/serverDirectives.
+function tickStatusEffects(profile) {
+  const effects = profile.status_effects || [];
+  if (!effects.length) return [];
+  const DAMAGE_RE = /POISON|VELENO|AVVELENATO|BLEED|SANGUINAMENTO|BURN|BRUCIATO|FUOCO/i;
+  const HEAL_RE   = /REGEN|RIGENERAZIONE/i;
+  const ticked = [];
+  const survived = [];
+
+  for (const eff of effects) {
+    const potency = eff.value ?? eff.potency ?? 0;
+    const id = String(eff.id || '');
+    if (potency > 0) {
+      if (DAMAGE_RE.test(id)) {
+        profile.stats.HP.current = Math.max(0, profile.stats.HP.current - potency);
+        ticked.push({ id, effect: 'damage', amount: potency });
+      } else if (HEAL_RE.test(id)) {
+        profile.stats.HP.current = Math.min(profile.stats.HP.max, profile.stats.HP.current + potency);
+        ticked.push({ id, effect: 'heal', amount: potency });
+      }
+    }
+    const remaining = (eff.turns_remaining ?? eff.duration_turns ?? 1) - 1;
+    if (remaining > 0) survived.push({ ...eff, turns_remaining: remaining });
+  }
+  profile.status_effects = survived;
+  return ticked;
+}
+
+// Decrementa di 1 i cooldown attivi a inizio turno.
+function tickCooldowns(profile) {
+  const cds = profile.skill_cooldowns || {};
+  for (const id of Object.keys(cds)) {
+    if (cds[id] > 0) cds[id]--;
+  }
+  profile.skill_cooldowns = cds;
+}
+
+function sanitizeGMResponse(raw) {
+  if (!raw || typeof raw !== 'object') raw = {};
+  raw.narrative = (
+    typeof raw.narrative  === 'string' ? raw.narrative  :
+    typeof raw.narrazione === 'string' ? raw.narrazione :
+    typeof raw.response   === 'string' ? raw.response   :
+    typeof raw.text       === 'string' ? raw.text       :
+    '(risposta non valida dal GM)'
+  );
+  if (!Array.isArray(raw.ui_events))   raw.ui_events   = [];
+  if (!Array.isArray(raw.battle_tags)) raw.battle_tags = [];
+  return raw;
+}
+
+function buildSystemPrompt(profile, inventory, skills, gameState, serverDirectives = '', worldData = {}) {
   const isNew = !profile.name;
+  // Conta quante risposte del GM ci sono già nel log per capire in quale passo siamo
+  const gmTurns = (gameState.session_log || []).filter(e => e.role === 'assistant').length;
+  const memoBlock = gameState.context_memo
+    ? `\n## FILO NARRATIVO ATTUALE\n${gameState.context_memo}\n`
+    : '';
+  const diaryBlock = buildDiaryBlock(gameState);
   const loadout = gameState.skill_loadout || [];
   const equip = inventory.equipped || {};
 
@@ -309,12 +630,12 @@ function buildSystemPrompt(profile, inventory, skills, gameState) {
     .map(([slot, item]) => `  ${slot}: ${item ? item.name : 'vuoto'}`)
     .join('\n');
 
-  const bag = inventory.bag || [];
+  const bag = stripBagForAI(inventory.bag);
   const bagLines = bag.length
     ? bag.map((it, i) => {
         const unknown = it.appraised === false;
         const extra = unknown
-          ? ` [NON VALUTATO — player vede "?". Stat reali: ${JSON.stringify(it.stat_bonus)}, rarità: ${it.rarity}]`
+          ? ` [NON VALUTATO — stat reali: ${JSON.stringify(it.stat_bonus)}, rarità: ${it.rarity}]`
           : '';
         return `  [${i}] ${it.name} (${it.type}${it.slot ? ', slot:' + it.slot : ''})${extra}`;
       }).join('\n')
@@ -341,42 +662,89 @@ function buildSystemPrompt(profile, inventory, skills, gameState) {
   } catch {}
 
   let stateBlock = isNew
-    ? `## PERSONAGGIO NON CREATO — AVVIA CREAZIONE
-Guida il giocatore passo per passo:
-1. Presentati come il Sistema di Shangri-La Frontier e descrivi la città di partenza Crysta
-2. Chiedi il nome del personaggio
-3. Proponi le classi (ogni classe parte da stat base 10 + bonus fissi):
-   - Mercenario: STR 15, VIT 13 — combattente frontale resistente
-   - Scout:      DEX 15, AGI 13 — veloce, preciso, schivate
-   - Mago:       TEC 15, LUC 13 — skill potenti, drop rari
-   - Sacerdote:  VIT 15, LUC 13 — cura, sacro, supporto
-   - Ingegnere:  TEC 15, STR 13 — costrutti, alchimia, gadget
-   - Custom:     tutte le stat a 10, distribuisci tu stesso 8 punti classe
-4. Quando il giocatore sceglie nome + classe, aggiorna state_updates.player con il profilo completo.
-   NON chiedere dove mettere i punti extra — il giocatore li distribuirà liberamente tramite l'interfaccia UI.
-   Imposta SEMPRE stat_points_available: 10 (punti liberi che il player assegna da solo).
+    ? (gmTurns === 0
+      ? `## CREAZIONE PERSONAGGIO — PASSO 1
+ISTRUZIONE: Sei al PRIMO turno. Presenta l'ambientazione di Shangri-La Frontier e la città di Crysta in modo evocativo (3-4 frasi). Termina OBBLIGATORIAMENTE con la domanda: "Come vuoi chiamare il tuo personaggio?" Non menzionare ancora le classi.`
 
-Esempio per Scout:
-{
-  "name": "NomeGiocatore",
-  "job": "Scout",
-  "stats": {
-    "HP": {"current": 100, "max": 100},
-    "MP": {"current": 50, "max": 50},
-    "STM": {"current": 100, "max": 100},
-    "STR": 10, "DEX": 15, "AGI": 13, "TEC": 10, "VIT": 10, "LUC": 10
-  },
-  "stat_points_available": 10
-}`
-    : `## PERSONAGGIO: ${profile.name} — ${[profile.job, profile.subclass ? SUBCLASS_NAMES[profile.subclass] : null, profile.advanced_class ? ADV_CLASS_NAMES[profile.advanced_class] : null].filter(Boolean).join(' → ')} — Lv.${profile.level}
+      : gmTurns === 1
+      ? `## CREAZIONE PERSONAGGIO — PASSO 2
+ISTRUZIONE: Il giocatore ha appena fornito il suo nome nel messaggio corrente. Estrai il nome esatto.
+Se il messaggio contiene anche una scelta di classe, crea il profilo completo adesso (vedi STAT sotto). Altrimenti presenta le classi e chiedi di sceglierne una.
 
-HP: ${profile.stats.HP.current}/${profile.stats.HP.max} | MP: ${profile.stats.MP.current}/${profile.stats.MP.max} | STM: ${profile.stats.STM.current}/${profile.stats.STM.max}
+CLASSI DISPONIBILI (usa ESATTAMENTE questi nomi nel JSON per il campo "job"):
+- Mercenario — guerriero frontale
+- Scout      — veloce e preciso
+- Mago       — skill potenti e drop rari
+- Sacerdote  — cura e magia sacra
+- Ingegnere  — costrutti e gadget
+- Custom     — distribuisci tu stesso i punti stat
+
+STAT DI PARTENZA per ogni classe (valori ESATTI da usare nel JSON):
+  Mercenario: "STR":15,"DEX":10,"AGI":10,"TEC":10,"VIT":13,"LUC":10  stat_points_available:10
+  Scout:      "STR":10,"DEX":15,"AGI":13,"TEC":10,"VIT":10,"LUC":10  stat_points_available:10
+  Mago:       "STR":10,"DEX":10,"AGI":10,"TEC":15,"VIT":10,"LUC":13  stat_points_available:10
+  Sacerdote:  "STR":10,"DEX":10,"AGI":10,"TEC":10,"VIT":15,"LUC":13  stat_points_available:10
+  Ingegnere:  "STR":13,"DEX":10,"AGI":10,"TEC":15,"VIT":10,"LUC":10  stat_points_available:10
+  Custom:     "STR":10,"DEX":10,"AGI":10,"TEC":10,"VIT":10,"LUC":10  stat_points_available:18
+
+Quando crei il profilo imposta state_updates.player con (esempio Scout):
+{"name":"<nome>","job":"Scout","level":1,"experience":0,"experience_to_next":100,
+ "stats":{"HP":{"current":100,"max":100},"MP":{"current":50,"max":50},"STM":{"current":100,"max":100},
+          "STR":10,"DEX":15,"AGI":13,"TEC":10,"VIT":10,"LUC":10},
+ "stat_points_available":10,"money":500,"skill_slots":4}
+NON chiedere dove mettere i punti stat — il giocatore li assegna da solo tramite UI.`
+
+      : `## CREAZIONE PERSONAGGIO — PASSO 3
+ISTRUZIONE: Il giocatore sta scegliendo la classe nel messaggio corrente. Il nome lo ha già fornito in un turno precedente — cercalo nella storia della conversazione.
+Determina la classe dal messaggio corrente, recupera il nome dalla storia, poi crea subito il profilo completo.
+
+STAT DI PARTENZA per ogni classe (valori ESATTI da usare nel JSON):
+  Mercenario: "STR":15,"DEX":10,"AGI":10,"TEC":10,"VIT":13,"LUC":10  stat_points_available:10
+  Scout:      "STR":10,"DEX":15,"AGI":13,"TEC":10,"VIT":10,"LUC":10  stat_points_available:10
+  Mago:       "STR":10,"DEX":10,"AGI":10,"TEC":15,"VIT":10,"LUC":13  stat_points_available:10
+  Sacerdote:  "STR":10,"DEX":10,"AGI":10,"TEC":10,"VIT":15,"LUC":13  stat_points_available:10
+  Ingegnere:  "STR":13,"DEX":10,"AGI":10,"TEC":15,"VIT":10,"LUC":10  stat_points_available:10
+  Custom:     "STR":10,"DEX":10,"AGI":10,"TEC":10,"VIT":10,"LUC":10  stat_points_available:18
+
+Imposta state_updates.player con (esempio Mago):
+{"name":"<nome>","job":"Mago","level":1,"experience":0,"experience_to_next":100,
+ "stats":{"HP":{"current":100,"max":100},"MP":{"current":50,"max":50},"STM":{"current":100,"max":100},
+          "STR":10,"DEX":10,"AGI":10,"TEC":15,"VIT":10,"LUC":13},
+ "stat_points_available":10,"money":500,"skill_slots":4}
+NON chiedere dove mettere i punti stat — il giocatore li assegna da solo tramite UI.`
+    )
+    : null;  // personaggio esistente: gestito tramite semiStaticBlock + dynamicBlock
+
+  // ── Livello 2: semi-statico (cambia raramente → massimizza cache prefix DeepSeek) ──
+  let semiStaticBlock = '';
+  // ── Livello 3: dinamico (cambia ad ogni turno) ──────────────────────────────────────
+  let dynamicBlock = stateBlock || '';  // creazione: tutto dinamico
+
+  if (!isNew) {
+    const classChain = [
+      profile.job,
+      profile.subclass       ? SUBCLASS_NAMES[profile.subclass]           : null,
+      profile.advanced_class ? ADV_CLASS_NAMES[profile.advanced_class]    : null,
+    ].filter(Boolean).join(' → ');
+
+    // Blocco lore zona — nel Livello 2 (semi-statico) per massimizzare il cache hit
+    // I mostri con is_dead:true (world state per-player) sono filtrati dalla lista
+    const liveMonsters = (worldData.available_monsters || []).filter(m => !m.is_dead);
+    const worldBlock = worldData.zone_name
+      ? `## LORE ZONA: ${worldData.zone_name}\n` +
+        `${worldData.sub_location_lore || ''}\n` +
+        (liveMonsters.length
+          ? 'Mostri in zona: ' + liveMonsters.map(
+              m => `${m.name} (HP:${m.hp ?? '?'}, Tier:${m.danger_level ?? '?'}, EXP:${m.exp_drop ?? '?'}, Oro:${m.gold_drop ?? '?'})`
+            ).join(' | ')
+          : '(nessun mostro vivo in questa zona)') + '\n\n'
+      : '';
+
+    semiStaticBlock = `${worldBlock}## PERSONAGGIO: ${profile.name} — ${classChain} — Lv.${profile.level}
 STR: ${totalStat(profile, inventory, 'STR')} | DEX: ${totalStat(profile, inventory, 'DEX')} | AGI: ${totalStat(profile, inventory, 'AGI')}
 TEC: ${totalStat(profile, inventory, 'TEC')} | VIT: ${totalStat(profile, inventory, 'VIT')} | LUC: ${totalStat(profile, inventory, 'LUC')}
-EXP: ${profile.experience}/${profile.experience_to_next} | Denaro: ${profile.money} R
 Punti stat disponibili: ${profile.stat_points_available || 0}
 Titoli: ${(profile.titles || []).map(t => t.name).join(', ') || '—'}
-${statusLine}
 ${repLine}
 
 Equipaggiamento:
@@ -388,86 +756,66 @@ ${bagLines}
 Skill loadout (${loadout.length}/${profile.skill_slots} slot usati):
 ${loadoutLines}
 
-Zona: ${gameState.location}${gameState.sub_location ? ' ▸ ' + gameState.sub_location : ''} (${gameState.zone_type})
 Quest attive: ${questLines}
 
 ## SKILL SBLOCCABILI (requisiti soddisfatti, non ancora apparse)
 Puoi suggerire organicamente queste skill quando il giocatore esegue azioni coerenti:
 ${buildUnlockableBlock(profile, skills)}${npcBlock}`;
 
-  if (!isNew && gameState.combat_active && gameState.current_enemy) {
-    const e = gameState.current_enemy;
-    const statsLine = e.revealed
-      ? `STR ${e.stats?.STR ?? '?'} | AGI ${e.stats?.AGI ?? '?'} | Resistenza ${e.stats?.resistenza ?? 0}% | Debolezze: ${e.weaknesses?.join(', ') || 'nessuna'}`
-      : 'stat non ancora analizzate';
-    stateBlock += `\n\n⚔ COMBATTIMENTO ATTIVO
+    dynamicBlock = `HP: ${profile.stats.HP.current}/${profile.stats.HP.max} | MP: ${profile.stats.MP.current}/${profile.stats.MP.max} | STM: ${profile.stats.STM.current}/${profile.stats.STM.max}
+EXP: ${profile.experience}/${profile.experience_to_next} | Denaro: ${profile.money} R
+${statusLine}
+Zona: ${gameState.location}${gameState.sub_location ? ' ▸ ' + gameState.sub_location : ''} (${gameState.zone_type})`;
+
+    if (gameState.combat_active && gameState.current_enemy) {
+      const e = gameState.current_enemy;
+      const combatStatsLine = e.revealed
+        ? `STR ${e.stats?.STR ?? '?'} | AGI ${e.stats?.AGI ?? '?'} | Resistenza ${e.stats?.resistenza ?? 0}% | Debolezze: ${e.weaknesses?.join(', ') || 'nessuna'}`
+        : 'stat non ancora analizzate';
+      dynamicBlock += `\n\n⚔ COMBATTIMENTO ATTIVO
 Nemico: ${e.name} (Tier ${e.tier ?? '?'}, Lv.${e.level ?? '?'}) — HP: ${e.hp?.current ?? '?'}/${e.hp?.max ?? '?'}
-${statsLine}`;
+${combatStatsLine}`;
+    }
   }
 
-  return `Sei il Game Master di SHANGRI-LA FRONTIER, un VRMMO testuale hardcore. Rispondi sempre in italiano.
-Ogni esito è determinato dalle statistiche del personaggio. Non inventare numeri: usa le stat attuali per calcolare tutto.
+  const stateSections = isNew
+    ? dynamicBlock
+    : `## STATO PERSONAGGIO\n${semiStaticBlock}\n\n---\n## STATO CORRENTE\n${dynamicBlock}`;
 
-${stateBlock}
+  return `Sei il Game Master di SHANGRI-LA FRONTIER, un VRMMO testuale hardcore. Rispondi SEMPRE in italiano.
+REGOLA ASSOLUTA: Il gioco si chiama "Shangri-La Frontier". La città di partenza si chiama "Crysta". NON inventare mai altri nomi di mondi, città o ambientazioni. Ogni esito è determinato dalle statistiche: non inventare numeri.
 
 ## LORE
 - Moneta: Ragne (R) | I giocatori sono chiamati "Hunters"
 - Tier mob: F < E < D < C < B < A < S < SS < SSS (boss unici, scenari irripetibili)
 - Scenari "Unique": one-shot ad alto rischio e ricompensa, attivati da LUC alta
 
-## FORMULE DI GIOCO
-- Danno fisico = (STR_totale + bonus_arma) × moltiplicatore_skill × (1 − resistenza_nemico/100)
-- % Schivata = AGI_player / (AGI_player + AGI_nemico) × 100
-- % Critico = LUC / 10 → critico = danno × 1.5
-- Analisi = clamp((TEC + LUC) / 20 × 100, 30, 100)% di informazioni rivelate
-- Level up: ogni EXP_to_next raggiunta → +10 HP max, +5 MP max, +5 STM max, +3 punti stat, +1 skill slot ogni 5 livelli
+## SCHEMA RISPOSTA JSON (OBBLIGATORIO)
+"narrative" DEVE essere la PRIMA chiave del JSON. Struttura minima:
+{"narrative":"...","context_memo":"...","state_updates":{...},"bag_add":[...],...}
 
-## FORMATO RISPOSTA — OBBLIGATORIO JSON
-Rispondi SEMPRE con un json valido, senza testo fuori dal JSON:
-{
-  "narrative": "Narrazione immersiva in italiano. Usa **grassetto** per danni/numeri critici, *corsivo* per atmosfera ed effetti visivi. Sii cinematico e dettagliato.",
-  "state_updates": {
-    "player": {
-      "stats": { "HP": { "current": 85 }, "STM": { "current": 70 } },
-      "experience": 125,
-      "money": 450
-    },
-    "game_state": {
-      "location": "Crysta",
-      "sub_location": "Taverna del Cacciatore",
-      "zone_type": "safe_zone",
-      "quests_active": ["nome quest"]
-    }
-  },
-  "new_skills": [],
-  "ui_events": []
-}
+Interfaccia GMResponse:
+  narrative:         string   // narrazione markdown — SEMPRE presente, SEMPRE prima chiave
+  context_memo?:     string   // memo telegrafico fatti chiave. Accumula, non cancellare.
+  state_updates?:    { player?: {stats?,money?,status_effects?,...}, game_state?: {location?,combat_active?,current_enemy?,...} }
+  bag_add?:          Array<{id,name,type,slot,stat_bonus,rarity,price,appraised?}>  // MAI usare state_updates.inventory.bag
+  appraise_item?:    { item_id?: string } | { bag_index?: number }
+  battle_tags?:      string[]  // OBBLIGATORI ad ogni azione meccanica — formato rigido, il server li elabora matematicamente:
+                               // "PLAYER_HP_-15" "PLAYER_MP_-10" "PLAYER_STM_-5" "PLAYER_HP_+20"
+                               // "ENEMY_HP_-30" "GOLD_GAIN_50" "GOLD_LOSE_30" "EXP_GAIN_100"
+  ui_events?:        string[]  // effetti visivi istantanei nel client: "SCREEN_SHAKE" "RED_FLASH" "HEAL_EFFECT"
+  reputation_delta?: { hunters_guild?,merchants?,city_guard?,scholars?,underground?: number }  // SEMPRE delta, mai assoluto
+  npc_add?:          { id,name,faction,relationship,notes }  // id stabile snake_case
+  npc_update?:       { id, ...campi da aggiornare }
+  diary_entry?:      { location,sub_location?,summary,npcs? }  // solo eventi significativi
+  new_skills?:       Array<SkillObject>
 
-REGOLE state_updates:
-- Per HP/MP/STM usa SEMPRE { "current": N } mai solo il numero
-- Per stat base (STR, DEX ecc.) usa solo il numero: { "STR": 15 }
-- money è SEMPRE il totale finale (MAI una variazione, MAI negativo). Es: giocatore ha 500R, spende 25R → scrivi "money": 475. Se non ha abbastanza soldi, narragli il rifiuto e NON aggiornare money.
-- Ometti state_updates se nulla cambia
-- location = nome della zona mappa (Crysta, Foresta di Aokara…) — cambia SOLO quando il giocatore si sposta su una nuova zona della mappa mondiale
-- sub_location = posto specifico DENTRO la zona (es. "Taverna", "Mercato dei Tesori", "Ingresso Dungeon") — aggiornalo liberamente durante l'esplorazione
-- ui_events può contenere: "level_up", "skill_unlocked", "item_found"
-- Se il giocatore sblocca una nuova skill, includila in new_skills con: id, name, type, requirements, cost, effect
-- Per eventi di combattimento includi "battle_tags" al livello principale del JSON (NON dentro state_updates):
-  "battle_tags": ["player_dodge", "player_critical", "skill_used:skill_id1,skill_id2"]
-  Tag disponibili: "player_dodge" (schivata), "player_critical" (critico), "skill_used:id1,id2" (skill usate, ids separati da virgola)
-  Il server aggiorna i contatori in autonomia. Includi solo i tag del turno corrente.
-
-## AGGIUNGERE OGGETTI ALLA BORSA (acquisti narrativi, drop, ricompense)
-USA SEMPRE "bag_add" (non state_updates.inventory.bag — sostituirebbe tutta la borsa):
-"bag_add": [
-  { "id": "id_univoco", "name": "Nome", "type": "weapon|armor|accessory|consumable", "slot": "weapon|offhand|head|chest|legs|boots|accessory_1|null", "description": "Breve desc.", "stat_bonus": { "STR": 2 }, "rarity": "comune|non_comune|raro", "price": 50 }
-]
-Esempio acquisto balestra + pugnale da 25R totali (giocatore aveva 500R):
-"state_updates": { "player": { "money": 475 } },
-"bag_add": [
-  { "id": "balestra_01", "name": "Balestra Leggera", "type": "weapon", "slot": "weapon", "stat_bonus": { "DEX": 2 }, "rarity": "comune", "price": 15 },
-  { "id": "pugnale_01",  "name": "Pugnale",          "type": "weapon", "slot": "offhand","stat_bonus": { "DEX": 1 }, "rarity": "comune", "price": 10 }
-]
+REGOLE:
+- money: sempre totale finale, mai negativo
+- HP/MP/STM: sempre {current:N}
+- location: cambia solo a nuova zona-mappa; sub_location cambia liberamente
+- Oggetti a potenziale nascosto: aggiungi "appraised":false — l'UI mostra "?" al player
+- Per rivelare oggetto: appraise_item:{item_id:"xxx"} a top-level
 
 ## GESTIONE COMBATTIMENTO
 Per iniziare uno scontro:
@@ -479,44 +827,46 @@ Per rivelare stat nemico dopo Analisi:
 Per terminare il combattimento:
 "game_state": { "combat_active": false, "zone_type": "safe_zone", "current_enemy": null }
 
+BATTLE TAGS — il server li elabora matematicamente come fonte di verità (ignora valori assoluti in state_updates per HP/MP/STM/money/exp/bag):
+  Skill (il server verifica CD e risorse — se bloccata: nessun consumo + "SKILL_ERROR" al client):
+    "SKILL_USE_[skill_id]"     → attiva skill (es. "SKILL_USE_fendente_rapido")
+  Danni e risorse:
+    "PLAYER_HP_-N"             → danno subito (es. "PLAYER_HP_-15")
+    "PLAYER_HP_+N"             → guarigione (es. "PLAYER_HP_+20")
+    "PLAYER_MP_-N"             → MP consumati
+    "PLAYER_STM_-N"            → STM consumata
+    "ENEMY_HP_-N"              → danno inflitto al nemico
+    "GOLD_GAIN_N"              → oro ricevuto (drop/reward)
+    "GOLD_LOSE_N"              → oro speso
+    "EXP_GAIN_N"               → EXP guadagnata
+  Borsa (validazione lato server — quantità mai negative):
+    "BAG_ADD_[item_id]_N"      → aggiunge N unità di item_id (es. "BAG_ADD_dente_goblin_2")
+    "BAG_REMOVE_[item_id]_N"   → rimuove N unità (es. "BAG_REMOVE_pozione_salute_1")
+  Effetti di stato (tick automatico ogni turno):
+    "STATUS_ADD_[ID]_[dur]_[pot]" → applica stato (es. "STATUS_ADD_VELENO_3_5" = 3 turni, 5 HP/turno)
+    "STATUS_REMOVE_[ID]"          → rimuove stato (es. "STATUS_REMOVE_VELENO")
+  Quest:
+    "QUEST_START_[quest_id]"   → avvia una quest nel profilo del giocatore
+    "QUEST_PROGRESS_[obj]_N"   → avanza obiettivo N volte (es. "QUEST_PROGRESS_kill_goblin_1")
+  Calcolatore combattimento autorevole (danno calcolato da stats, non da AI — usa QUESTI invece di PLAYER_HP_-N / ENEMY_HP_-N in combattimento):
+    "COMBAT_HIT_PLAYER_[monster_id]_[attack_type]" → server calcola Danno = max(1, Monster_STR − floor(Player_VIT/3)) e lo sottrae agli HP del player
+    "COMBAT_HIT_ENEMY_[monster_id]_[skill_id]"     → server calcola Danno = max(1, floor(STR×mult) × (1−resistenza%)) e lo sottrae agli HP del nemico
+    Esempi: "COMBAT_HIT_PLAYER_goblin_artiglio"  |  "COMBAT_HIT_ENEMY_goblin_fendente_rapido"
+UI EVENTS — effetti visivi istantanei nel client:
+  "SCREEN_SHAKE"  → scuote lo schermo (colpo subito, esplosione)
+  "RED_FLASH"     → flash rosso (danno grave)
+  "HEAL_EFFECT"   → flash verde (guarigione significativa)
+
 ## RICERCA OGGETTI CON POTENZIALE NASCOSTO
-
-Quando il giocatore cerca attivamente oggetti interessanti in mercati, bancarelle o botteghe, applica questo sistema.
-
-QUALE STAT usare (decidi tu in base al contesto):
-- TEC: il giocatore sa cosa cerca — occhio tecnico, riconosce lavorazione, materiali, incisioni
-- LUC: ci inciampa per pura fortuna — istinto, momento, coincidenza
-
-SOGLIE DI RISULTATO (in base al valore della stat scelta):
-- < 8   → Nulla di interessante. Il mercato è banale.
-- 8–11  → Oggetto comune. Valore reale = apparente. Nessuna sorpresa.
-- 12–15 → Qualcosa di potenzialmente interessante. Non sei certo.
-- 16–19 → Oggetto raro individuato. L'occhio ti dice che vale. Ma sei sicuro?
-- 20+   → Trovi qualcosa di eccezionale — rarissimo. La tua valutazione potrebbe essere giusta o sbagliata.
-
-FATTORE VENDITORE (varia narrativamente, non deve essere scontato):
-- Ignaro: non sa cosa ha → prezzo molto basso rispetto al valore reale (affare!)
-- Approssimativo: prezzo vicino al reale
-- Esperto: prezzo corretto o leggermente sopra
-- Furbo: sopravvaluta intenzionalmente qualcosa di mediocre
-
-INCERTEZZA DEL PLAYER (basata su TEC del personaggio):
-- TEC < 10: alta probabilità di sopravvalutare — "sembra epico, è comune"
-- TEC 10–14: valutazione ~70% accurata
-- TEC 15+: valutazione affidabile — raramente ingannato
-
-COME NARRARE:
-- Mai rivelare la rarità reale direttamente. Usa linguaggio vago: "sembra lavorato meglio del normale", "le incisioni appaiono antiche", "il bilanciamento è insolito"
-- Il prezzo richiesto NON coincide necessariamente col valore reale
-- Se il player acquista qualcosa di sopravvalutato, rivelalo attraverso l'uso in combattimento o con narrazione successiva
+Usa TEC (cerca attivamente) o LUC (ci inciampa). Soglie: <8 nulla | 8-11 comune | 12-15 interessante | 16-19 raro | 20+ eccezionale. Non rivelare la rarità reale: usa linguaggio vago. Prezzo venditore ≠ valore reale.
 
 AGGIUNGERE OGGETTI A POTENZIALE NASCOSTO (stat reali presenti, ma nascoste al player in UI):
 "bag_add": [
   { "id": "lama_misteriosa", "name": "Lama dall'Aspetto Insolito", "appraised": false, "type": "weapon", "slot": "weapon", "stat_bonus": { "TEC": 4 }, "rarity": "raro", "price": 200, "description": "Incisioni rune sul bordo." }
 ]
-Con "appraised": false l'UI mostra "?" al posto delle stat e un pulsante "Valuta". Il GM può rivelare l'oggetto via narrazione inviando:
-"state_updates": { "appraise_item": { "item_id": "lama_misteriosa" } }
-oppure: { "appraise_item": { "bag_index": 0 } }
+Con "appraised": false l'UI mostra "?" al posto delle stat e un pulsante "Valuta". Il GM può rivelare l'oggetto via narrazione inviando a top-level:
+"appraise_item": { "item_id": "lama_misteriosa" }
+oppure: "appraise_item": { "bag_index": 0 }
 
 ## EFFETTI DI STATO
 
@@ -603,7 +953,11 @@ Alcune skill si sbloccano tramite contatori invece di stat/classe:
 - spe_fortuna_cacciatore: unique_completed >= 3
 - spe_risurrezione_fallen: near_death_survives >= 5
 Queste skill vengono sbloccate automaticamente dal sistema quando i contatori vengono aggiornati.
-Puoi anche assegnarle direttamente come ricompensa evento tramite new_skills.`;
+Puoi anche assegnarle direttamente come ricompensa evento tramite new_skills.
+
+---
+${stateSections}
+${memoBlock}${diaryBlock}${serverDirectives ? '\n\n' + serverDirectives : ''}`;
 }
 
 // ─── Level Up ─────────────────────────────────────────────────────────────────
@@ -635,6 +989,7 @@ function checkSkillUnlocks(profile, skills) {
   for (const sk of skills.skills) {
     if (learned.has(sk.id) || sk.unlocked_by_default) continue;
     const req = sk.requirements || {};
+    if (req.level          && profile.level < req.level) continue;
     if (req.stats) {
       const met = Object.entries(req.stats).every(([s, v]) => (profile.stats[s] || 0) >= v);
       if (!met) continue;
@@ -722,29 +1077,47 @@ app.get('/api/state', (req, res) => {
   }
 });
 
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', (req, res) => {
+  chatTail = chatTail.then(async () => {
   const { message } = req.body;
   if (!message?.trim()) return res.status(400).json({ error: 'Messaggio vuoto' });
 
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const sendEvent = (data) => res.write('data: ' + JSON.stringify(data) + '\n\n');
+
   try {
-    const profile = readData('player_profile.json');
+    const profile   = readDataSafe('player_profile.json');
     const inventory = readData('inventory.json');
-    const skills = readData('skills_library.json');
+    const skills    = readData('skills_library.json');
     const gameState = readData('game_state.json');
 
     // Modalità GM umano: salta l'AI, salva il messaggio, segnala al frontend
     if (gameState.gm_mode) {
-      gameState.session_log = [...(gameState.session_log || []).slice(-11), { role: 'user', content: message }];
+      gameState.session_log = [...(gameState.session_log || []).slice(-(MAX_SESSION_HISTORY - 1)), { role: 'user', content: message }];
       writeData('game_state.json', gameState);
-      return res.json({ waiting_for_gm: true, state: { profile, inventory, skills, gameState } });
+      sendEvent({ type: 'gm_mode', state: { profile, inventory, skills, gameState } });
+      return res.end();
     }
 
-    const history = (gameState.session_log || []).slice(-12);
+    // ── Tick inizio turno (prima dello snapshot) ─────────────────────────────
+    const tickedEffects = tickStatusEffects(profile);
+    tickCooldowns(profile);
 
-    // ── Server directives: calcolate PRIMA di chiamare Gemini ────────────────
+    const history = (gameState.session_log || []).slice(-MAX_SESSION_HISTORY);
     let serverDirectives = '';
 
-    // 1. Evento unico attivabile matematicamente
+    if (tickedEffects.length > 0) {
+      const tickLines = tickedEffects
+        .map(t => `${t.id}: ${t.effect === 'damage' ? '-' : '+'}${t.amount} HP`)
+        .join(', ');
+      serverDirectives += `[⏱ TICK EFFETTI STATO] A inizio turno i seguenti effetti hanno agito automaticamente: ${tickLines}. Riflettilo nella narrazione prima dell'azione del giocatore.\n\n`;
+    }
+
     const triggeredEvent = checkUniqueEventTriggers(profile, inventory, gameState);
     if (triggeredEvent) {
       serverDirectives +=
@@ -755,7 +1128,6 @@ app.post('/api/chat', async (req, res) => {
         `{ "unique_scenario_flags": { "${triggeredEvent.flag}": true } }\n\n`;
     }
 
-    // 2. Dungeon context (stanza corrente + connessioni valide)
     const dungCtx = getDungeonContext(gameState);
     if (dungCtx) {
       const { dungeon, room } = dungCtx;
@@ -773,42 +1145,126 @@ app.post('/api/chat', async (req, res) => {
         `ID validi: ${connList}.\n\n`;
     }
 
-    const systemPrompt = (serverDirectives ? serverDirectives : '') +
-      buildSystemPrompt(profile, inventory, skills, gameState);
+    // Carica stato mondo per-player (save file mutable > fallback file statico)
+    let worldData = {};
+    let worldStatePath = null;
+    if (profile.name) {
+      try {
+        const staticWorld = readData(`world/${locationToZoneFile(gameState.location)}.json`);
+        const playerId    = profile.name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+        worldStatePath    = path.join(SAVE_DIR, `${playerId}_world_state.json`);
+        try {
+          const saved = JSON.parse(fs.readFileSync(worldStatePath, 'utf-8'));
+          if (saved._zone === gameState.location) {
+            worldData = saved;
+          } else {
+            // Cambio zona: init nuovo save file per la nuova zona
+            worldData = { ...staticWorld, _zone: gameState.location, _player: playerId };
+            fs.writeFileSync(worldStatePath, JSON.stringify(worldData, null, 2));
+          }
+        } catch {
+          // Prima visita: crea il save file dal file statico
+          worldData = { ...staticWorld, _zone: gameState.location, _player: playerId };
+          fs.writeFileSync(worldStatePath, JSON.stringify(worldData, null, 2));
+        }
+      } catch { worldData = {}; }
+    } else {
+      try { worldData = readData(`world/${locationToZoneFile(gameState.location)}.json`); } catch { worldData = {}; }
+    }
 
-    // Build Gemini-compatible history (roles must strictly alternate user/model)
-    const geminiHistory = [];
-    for (const h of history) {
-      const role = h.role === 'assistant' ? 'model' : 'user';
-      const last = geminiHistory[geminiHistory.length - 1];
-      if (last && last.role === role) {
-        last.parts[0].text += '\n\n' + h.content;
-      } else {
-        geminiHistory.push({ role, parts: [{ text: h.content }] });
+    const systemPrompt = buildSystemPrompt(profile, inventory, skills, gameState, serverDirectives, worldData);
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...history.map(h => ({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.content })),
+      { role: 'user', content: message },
+    ];
+
+    // ── Streaming Phase ───────────────────────────────────────────────────────
+    const stream = await deepseek.chat.completions.create({
+      model: MODEL,
+      messages,
+      stream: true,
+      stream_options: { include_usage: true },
+      response_format: { type: 'json_object' },
+      temperature: 0.85,
+      max_tokens: 4096,
+    });
+
+    let fullBuffer = '';
+    let narrativeStartIdx = -1;
+    let narrativeScanPos = 0;
+    let narrativeEnded = false;
+    let streamComplete = false;
+    let lastUsage = null;
+
+    for await (const chunk of stream) {
+      if (chunk.usage) lastUsage = chunk.usage;  // ultimo chunk porta i totali
+      const token = chunk.choices[0]?.delta?.content || '';
+      if (!token) continue;
+      fullBuffer += token;
+
+      if (!narrativeEnded) {
+        if (narrativeStartIdx < 0) {
+          for (const m of ['"narrative":"', '"narrative": "']) {
+            const idx = fullBuffer.indexOf(m);
+            if (idx >= 0) { narrativeStartIdx = idx + m.length; narrativeScanPos = 0; break; }
+          }
+        }
+        if (narrativeStartIdx >= 0) {
+          let newText = '';
+          let i = narrativeStartIdx + narrativeScanPos;
+          while (i < fullBuffer.length) {
+            const c = fullBuffer[i];
+            if (c === '\\') {
+              if (i + 1 >= fullBuffer.length) break;
+              const next = fullBuffer[i + 1];
+              if (next === 'u') {
+                if (i + 5 >= fullBuffer.length) break;  // aspetta 4 cifre hex
+                const hex = fullBuffer.slice(i + 2, i + 6);
+                if (/^[0-9a-fA-F]{4}$/.test(hex)) { newText += String.fromCodePoint(parseInt(hex, 16)); i += 6; }
+                else                               { newText += '?'; i += 2; }
+              } else if (next === '"')  { newText += '"';  i += 2; }
+              else if (next === 'n')    { newText += '\n'; i += 2; }
+              else if (next === 't')    { newText += '\t'; i += 2; }
+              else if (next === '\\')   { newText += '\\'; i += 2; }
+              else if (next === 'r')    { newText += '\r'; i += 2; }
+              else                      { newText += next;  i += 2; }
+            } else if (c === '"') {
+              narrativeEnded = true; i++; break;
+            } else { newText += c; i++; }
+          }
+          narrativeScanPos = i - narrativeStartIdx;
+          if (newText) sendEvent({ type: 'token', text: newText });
+        }
       }
     }
-    // History must end with 'model' before sendMessage adds the new user turn
-    if (geminiHistory.length > 0 && geminiHistory[geminiHistory.length - 1].role === 'user') {
-      geminiHistory.pop();
+
+    streamComplete = true;
+
+    // ── Usage / Cache Hit Rate ────────────────────────────────────────────────
+    if (lastUsage) {
+      const promptTok  = lastUsage.prompt_tokens     || 0;
+      const outputTok  = lastUsage.completion_tokens || 0;
+      const cachedTok  = lastUsage.prompt_tokens_details?.cached_tokens || 0;
+      const hitPct     = promptTok > 0 ? ((cachedTok / promptTok) * 100).toFixed(1) : '0.0';
+      console.log(
+        `📊 [DEEPSEEK USAGE] — Turno Completato\n` +
+        `├── Input Totale:  ${promptTok} token\n` +
+        `├── Cache Hit:     ${cachedTok} token (${hitPct}%)\n` +
+        `└── Output:        ${outputTok} token`
+      );
     }
 
-    const geminiModel = genAI.getGenerativeModel({
-      model: MODEL,
-      systemInstruction: systemPrompt,
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.85, maxOutputTokens: 2048 },
-    });
-    const chat = geminiModel.startChat({ history: geminiHistory });
-    const geminiResult = await chat.sendMessage(message);
-    const rawContent = geminiResult.response.text();
+    // ── Parse Complete Response ───────────────────────────────────────────────
+    console.log('[GM RAW]', fullBuffer.slice(0, 300));
     let parsed;
-    try {
-      parsed = JSON.parse(rawContent);
-    } catch {
-      parsed = { narrative: rawContent };
-    }
+    try { parsed = JSON.parse(fullBuffer); } catch (e) { console.error('[GM JSON]', e.message); parsed = {}; }
+    parsed = sanitizeGMResponse(parsed);
+    console.log('[GM KEYS]', Object.keys(parsed));
 
-    const narrative = parsed.narrative || '(risposta non valida dal GM)';
-    const uiEvents = Array.isArray(parsed.ui_events) ? parsed.ui_events : [];
+    const narrative = parsed.narrative;
+    const uiEvents  = parsed.ui_events;
 
     // Snapshot pre-update
     const prevCombatActive  = gameState.combat_active;
@@ -833,9 +1289,24 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // Apply state updates
-    if (parsed.state_updates?.player) deepMerge(profile, parsed.state_updates.player);
-    if (parsed.state_updates?.inventory) deepMerge(inventory, parsed.state_updates.inventory);
-    if (parsed.state_updates?.game_state) deepMerge(gameState, parsed.state_updates.game_state);
+    if (parsed.context_memo) gameState.context_memo = parsed.context_memo;
+    if (parsed.diary_entry?.summary) {
+      try {
+        const diary = readData('travel_diary.json');
+        diary.entries = diary.entries || [];
+        diary.entries.push({
+          id: diary.entries.length + 1,
+          location: parsed.diary_entry.location || gameState.location,
+          sub_location: parsed.diary_entry.sub_location || gameState.sub_location || '',
+          summary: parsed.diary_entry.summary,
+          npcs: parsed.diary_entry.npcs || [],
+        });
+        writeData('travel_diary.json', diary);
+      } catch { /* non-critical */ }
+    }
+    if (parsed.state_updates?.player)     deepMerge(profile,    parsed.state_updates.player);
+    if (parsed.state_updates?.inventory)  deepMerge(inventory,  parsed.state_updates.inventory);
+    if (parsed.state_updates?.game_state) deepMerge(gameState,  parsed.state_updates.game_state);
 
     // Auto-set stanza iniziale quando si entra in un dungeon senza current_room_id
     if (gameState.zone_type === 'dungeon' && gameState.current_dungeon_id && !gameState.current_room_id) {
@@ -853,11 +1324,10 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
-    // bag_add: appende oggetti alla borsa senza sostituire l'array
-    if (parsed.state_updates?.bag_add) {
-      const toAdd = Array.isArray(parsed.state_updates.bag_add)
-        ? parsed.state_updates.bag_add
-        : [parsed.state_updates.bag_add];
+    // bag_add — top-level (schema) con fallback state_updates per compat
+    const bagAddItems = parsed.bag_add || parsed.state_updates?.bag_add;
+    if (bagAddItems) {
+      const toAdd = Array.isArray(bagAddItems) ? bagAddItems : [bagAddItems];
       inventory.bag = inventory.bag || [];
       toAdd.forEach((item, i) => {
         if (!item?.name) return;
@@ -876,27 +1346,26 @@ app.post('/api/chat', async (req, res) => {
       });
     }
 
-    // appraise_item: il GM identifica un oggetto in borsa via narrazione
-    if (parsed.state_updates?.appraise_item) {
-      const ai = parsed.state_updates.appraise_item;
+    // appraise_item — top-level con fallback
+    const appraiseData = parsed.appraise_item || parsed.state_updates?.appraise_item;
+    if (appraiseData) {
       let idx = -1;
-      if (ai.bag_index !== undefined) idx = Number(ai.bag_index);
-      else if (ai.item_id) idx = inventory.bag.findIndex(it => it.id === ai.item_id);
-      if (idx >= 0 && idx < (inventory.bag || []).length) {
-        inventory.bag[idx].appraised = true;
-      }
+      if (appraiseData.bag_index !== undefined) idx = Number(appraiseData.bag_index);
+      else if (appraiseData.item_id) idx = inventory.bag.findIndex(it => it.id === appraiseData.item_id);
+      if (idx >= 0 && idx < (inventory.bag || []).length) inventory.bag[idx].appraised = true;
     }
 
-    // Reputation delta
-    if (parsed.state_updates?.reputation_delta) {
+    // reputation_delta — top-level con fallback
+    const repDelta = parsed.reputation_delta || parsed.state_updates?.reputation_delta;
+    if (repDelta) {
       profile.reputation = profile.reputation || {};
-      for (const [faction, delta] of Object.entries(parsed.state_updates.reputation_delta)) {
+      for (const [faction, delta] of Object.entries(repDelta)) {
         profile.reputation[faction] = Math.max(-100, Math.min(100, (profile.reputation[faction] || 0) + Number(delta)));
       }
     }
 
-    // NPC add/update
-    const npcPayload = parsed.state_updates?.npc_add || parsed.state_updates?.npc_update;
+    // NPC add/update — top-level con fallback
+    const npcPayload = parsed.npc_add || parsed.npc_update || parsed.state_updates?.npc_add || parsed.state_updates?.npc_update;
     if (npcPayload) {
       let npcsData;
       try { npcsData = readData('npcs.json'); } catch { npcsData = { npcs: [] }; }
@@ -949,10 +1418,33 @@ app.post('/api/chat', async (req, res) => {
       writeData('bestiary.json', bestiary);
     } catch { /* non-critical */ }
 
+    // ── Battle Tags Engine — applica delta matematici come fonte di verità ────
+    if (parsed.battle_tags.length > 0) {
+      processBattleTags(parsed.battle_tags, profile, inventory, skills, gameState, {
+        HP: snapHP, MP: snapMP, STM: snapSTM,
+        money: snapMoney, exp: snapEXP,
+        enemyHP: snapEnemyHP,
+      }, uiEvents);
+    }
+
+    // World state persistence: segna il nemico come morto se HP → 0
+    if (worldStatePath && gameState.current_enemy?.hp?.current <= 0 && gameState.current_enemy?.name) {
+      try {
+        const ws       = JSON.parse(fs.readFileSync(worldStatePath, 'utf-8'));
+        const monsters = ws.available_monsters || [];
+        const mIdx     = monsters.findIndex(m => m.name === gameState.current_enemy.name);
+        if (mIdx >= 0 && !monsters[mIdx].is_dead) {
+          monsters[mIdx].is_dead = true;
+          ws.available_monsters  = monsters;
+          fs.writeFileSync(worldStatePath, JSON.stringify(ws, null, 2));
+          console.log(`[WorldState] ${gameState.current_enemy.name} segnato is_dead:true in ${path.basename(worldStatePath)}`);
+        }
+      } catch { /* non-critical */ }
+    }
+
     // ── Action counter tracking ───────────────────────────────────────────────
     const counters = profile.action_counters || {};
 
-    // battle_tags: AI emits semantic string tags, server increments counters
     if (Array.isArray(parsed.battle_tags)) {
       for (const tag of parsed.battle_tags) {
         if (tag === 'player_dodge')    counters.dodges    = (counters.dodges    || 0) + 1;
@@ -963,7 +1455,6 @@ app.post('/api/chat', async (req, res) => {
         }
       }
     } else if (parsed.state_updates?.counters) {
-      // Legacy fallback (old format)
       const aiCounters = parsed.state_updates.counters;
       if (aiCounters.dodges)    counters.dodges    = (counters.dodges    || 0) + Number(aiCounters.dodges);
       if (aiCounters.criticals) counters.criticals = (counters.criticals || 0) + Number(aiCounters.criticals);
@@ -972,38 +1463,28 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
-    // Enemy defeated (combat just ended)
     if (prevCombatActive && !gameState.combat_active && prevEnemyName) {
       counters.enemies_defeated = (counters.enemies_defeated || 0) + 1;
       const eliteTiers = ['B','A','S','SS','SSS'];
       if (eliteTiers.some(t => (prevEnemyTier || '').includes(t))) {
         counters.elite_kills = (counters.elite_kills || 0) + 1;
       }
-      // Near-death survive: player was at <10% HP and survived
       if (profile.stats.HP.current > 0 && profile.stats.HP.current / profile.stats.HP.max < 0.10) {
         counters.near_death_survives = (counters.near_death_survives || 0) + 1;
       }
     }
-
-    // Enemy analyzed
     if (gameState.current_enemy?.revealed && !prevEnemyRevealed && prevEnemyName) {
       counters.enemies_analyzed = (counters.enemies_analyzed || 0) + 1;
     }
-
-    // Zones visited
     if (gameState.location && gameState.location !== prevLocation) {
       counters.zones_visited = counters.zones_visited || [];
       if (!counters.zones_visited.includes(gameState.location)) {
         counters.zones_visited.push(gameState.location);
       }
     }
-
-    // Max money ever reached
     if (profile.money > (counters.max_money || 0)) counters.max_money = profile.money;
-
-    // Unique scenarios completed
+    const prevUniqueCompleted = counters.unique_completed || 0;
     counters.unique_completed = Object.values(gameState.unique_scenario_flags || {}).filter(Boolean).length;
-
     profile.action_counters = counters;
 
     // ── Quest Progress ────────────────────────────────────────────────────────
@@ -1011,16 +1492,12 @@ app.post('/api/chat', async (req, res) => {
     if (completedQuests.length > 0) {
       completedQuests.forEach(q => {
         uiEvents.push('quest_completed');
-        // Ri-check level up dopo EXP da quest
         checkLevelUp(profile).forEach(e => { if (!uiEvents.includes(e)) uiEvents.push(e); });
       });
     }
 
     // ── Unique event completion tracking ──────────────────────────────────────
-    const newUniqueDone = Object.values(gameState.unique_scenario_flags || {}).filter(Boolean).length;
-    if (newUniqueDone > (profile.action_counters?.unique_completed || 0)) {
-      counters.unique_completed = newUniqueDone;
-      profile.action_counters = counters;
+    if (counters.unique_completed > prevUniqueCompleted) {
       uiEvents.push('unique_event_completed');
     }
 
@@ -1028,14 +1505,12 @@ app.post('/api/chat', async (req, res) => {
     const newTitles    = checkTitles(profile, skills);
     const serverSkills = checkSkillUnlocks(profile, skills);
 
-    // Unlock skill reward from titles
     for (const t of newTitles) {
       if (t.rewards?.skill) {
         const sk = skills.skills.find(s => s.id === t.rewards.skill);
         if (sk) { sk.learned = true; serverSkills.push(sk); }
       }
     }
-
     if (newTitles.length || serverSkills.length) writeData('skills_library.json', skills);
 
     newTitles.forEach(() => uiEvents.push('title_unlocked'));
@@ -1045,12 +1520,8 @@ app.post('/api/chat', async (req, res) => {
       if (!parsed.new_skills.find(s => s.id === sk.id)) parsed.new_skills.push(sk);
     });
 
-    // Level up check
-    checkLevelUp(profile).forEach(e => {
-      if (!uiEvents.includes(e)) uiEvents.push(e);
-    });
+    checkLevelUp(profile).forEach(e => { if (!uiEvents.includes(e)) uiEvents.push(e); });
 
-    // Subclass / advanced class availability
     if (profile.name && profile.level >= 10 && !profile.subclass && !uiEvents.includes('subclass_available'))
       uiEvents.push('subclass_available');
     if (profile.name && profile.level >= 20 && profile.subclass && !profile.advanced_class && !uiEvents.includes('advanced_class_available'))
@@ -1079,12 +1550,10 @@ app.post('/api/chat', async (req, res) => {
         if (logEntries.length > 30) logEntries.shift();
         gameState.combat_log_entries = logEntries;
       }
-      if (prevCombatActive && !gameState.combat_active) {
-        gameState.combat_log_entries = [];
-      }
+      if (prevCombatActive && !gameState.combat_active) gameState.combat_log_entries = [];
     } catch { /* non-critical */ }
 
-    // New skills
+    // New skills from AI
     if (Array.isArray(parsed.new_skills)) {
       for (const sk of parsed.new_skills) {
         if (sk?.id && !skills.skills.find(s => s.id === sk.id)) {
@@ -1094,21 +1563,27 @@ app.post('/api/chat', async (req, res) => {
       writeData('skills_library.json', skills);
     }
 
-    // Auto-save backup on level_up or unique event completion
+    // Scrittura atomica: solo se lo stream si è concluso senza errori
+    if (!streamComplete) {
+      sendEvent({ type: 'error', error: 'Stream interrotto prima del completamento' });
+      return res.end();
+    }
+
     autoBackup(profile, gameState, uiEvents);
 
-    // Persist
+    // Snapshot .bak preventivo — protegge da crash durante la writeData
+    try { fs.copyFileSync(path.join(DATA_DIR, 'player_profile.json'), path.join(DATA_DIR, 'player_profile.json.bak')); } catch { /* non-critico al primo avvio */ }
     writeData('player_profile.json', profile);
     writeData('inventory.json', inventory);
-
     gameState.session_log = [
-      ...(gameState.session_log || []).slice(-10),
+      ...(gameState.session_log || []).slice(-(MAX_SESSION_HISTORY - 2)),
       { role: 'user', content: message },
       { role: 'assistant', content: narrative },
     ];
     writeData('game_state.json', gameState);
 
-    res.json({
+    sendEvent({
+      type: 'done',
       narrative,
       ui_events: uiEvents,
       new_skills: parsed.new_skills || [],
@@ -1117,21 +1592,28 @@ app.post('/api/chat', async (req, res) => {
       triggered_event: triggeredEvent ? { id: triggeredEvent.id, name: triggeredEvent.name } : null,
       dungeon_room: dungCtx ? { id: dungCtx.room.id, name: dungCtx.room.name, type: dungCtx.room.type } : null,
       state: {
-        profile: readData('player_profile.json'),
+        profile:   readData('player_profile.json'),
         inventory: readData('inventory.json'),
-        skills: readData('skills_library.json'),
+        skills:    readData('skills_library.json'),
         gameState: readData('game_state.json'),
       },
     });
+    res.end();
 
   } catch (err) {
     console.error('Chat error:', err?.message ?? err);
-    const status = err?.status === 429 ? 429 : err?.status === 401 ? 401 : 500;
-    const msg = {
-      429: 'Rate limit Gemini raggiunto. Aspetta qualche secondo e riprova.',
-      401: 'API key Gemini non valida. Controlla il file .env.',
-    };
-    res.status(status).json({ error: msg[status] ?? err.message });
+    sendEvent({ type: 'error', error: err.message || 'Errore interno del server' });
+    res.end();
+  }
+  }).catch(() => {});
+});
+
+app.get('/api/diary', (req, res) => {
+  try {
+    const diary = readData('travel_diary.json');
+    res.json(diary);
+  } catch {
+    res.json({ entries: [] });
   }
 });
 
@@ -1172,7 +1654,7 @@ app.post('/api/reset', (req, res) => {
       location: 'Crysta', sub_location: '', zone_type: 'safe_zone',
       quests_active: [], quests_completed: [], unique_scenario_flags: {},
       combat_active: false, current_enemy: null, skill_loadout: [], session_log: [],
-      current_dungeon_id: null, current_room_id: null, rooms_visited: [],
+      current_dungeon_id: null, current_room_id: null, rooms_visited: [], context_memo: '',
     });
     res.json({ ok: true });
   } catch (err) {
@@ -1320,6 +1802,14 @@ app.post('/api/subclass', (req, res) => {
     if (profile.level < 10) return res.status(400).json({ error: 'Livello 10 richiesto per la specializzazione' });
     if (profile.subclass) return res.status(400).json({ error: 'Specializzazione già scelta' });
 
+    const inventory = readData('inventory.json');
+    const statReqs = SUBCLASS_REQUIREMENTS[profile.job] || {};
+    const statsMet = Object.entries(statReqs).every(([s, v]) => totalStat(profile, inventory, s) >= v);
+    if (!statsMet) {
+      const needed = Object.entries(statReqs).map(([s, v]) => `${s} ${v}`).join(', ');
+      return res.status(400).json({ error: `Requisiti stat non soddisfatti per la specializzazione: ${needed}` });
+    }
+
     const allowed = SUBCLASS_COMPAT[profile.job] || Object.keys(SUBCLASS_NAMES);
     if (!allowed.includes(subclass_id)) return res.status(400).json({ error: 'Specializzazione non disponibile per questa classe' });
 
@@ -1357,6 +1847,14 @@ app.post('/api/advanced-class', (req, res) => {
     if (profile.level < 20) return res.status(400).json({ error: 'Livello 20 richiesto per la classe avanzata' });
     if (!profile.subclass) return res.status(400).json({ error: 'Specializzazione non ancora scelta' });
     if (profile.advanced_class) return res.status(400).json({ error: 'Classe avanzata già scelta' });
+
+    const inventory = readData('inventory.json');
+    const statReqs = ADV_CLASS_REQUIREMENTS[profile.job] || {};
+    const statsMet = Object.entries(statReqs).every(([s, v]) => totalStat(profile, inventory, s) >= v);
+    if (!statsMet) {
+      const needed = Object.entries(statReqs).map(([s, v]) => `${s} ${v}`).join(', ');
+      return res.status(400).json({ error: `Requisiti stat non soddisfatti per la classe avanzata: ${needed}` });
+    }
 
     const allowed = ADV_CLASS_COMPAT[profile.subclass] || [];
     if (!allowed.includes(advanced_class_id)) return res.status(400).json({ error: 'Classe avanzata non compatibile con la tua specializzazione' });
@@ -1552,12 +2050,14 @@ Rispondi con json valido:
   ]
 }`;
 
-    const shopModel = genAI.getGenerativeModel({
+    const resp = await deepseek.chat.completions.create({
       model: MODEL,
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.7, maxOutputTokens: 1200 },
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
+      temperature: 0.7,
+      max_tokens: 1200,
     });
-    const shopResult = await shopModel.generateContent(prompt);
-    const raw = shopResult.response.text();
+    const raw = resp.choices[0]?.message?.content || '{}';
     const parsed = JSON.parse(raw);
     const shop = {
       shop_name: parsed.shop_name || 'Negozio',

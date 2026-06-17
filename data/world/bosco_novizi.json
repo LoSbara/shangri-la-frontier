@@ -1,0 +1,9 @@
+{
+  "zone_name": "Bosco dei Novizi",
+  "sub_location_lore": "Un'area boscosa fitta, popolata da Goblin di basso livello e Melme. L'atmosfera è umida e pesante. I rami intrecciati filtrano la luce in raggi dorati irregolari. È il territorio di caccia ideale per i nuovi Hunter.",
+  "available_monsters": [
+    { "name": "Goblin Esploratore", "hp": 50, "stats": { "STR": 8, "AGI": 10, "resistenza": 0 }, "weaknesses": ["fuoco"], "danger_level": "E", "exp_drop": 25, "gold_drop": 15 },
+    { "name": "Melma Verde", "hp": 30, "stats": { "STR": 4, "AGI": 3, "resistenza": 15 }, "weaknesses": ["fulmine", "ghiaccio"], "danger_level": "F", "exp_drop": 12, "gold_drop": 5 },
+    { "name": "Lupo Selvatico", "hp": 65, "stats": { "STR": 12, "AGI": 15, "resistenza": 5 }, "weaknesses": ["fuoco"], "danger_level": "D", "exp_drop": 40, "gold_drop": 20 }
+  ]
+}
